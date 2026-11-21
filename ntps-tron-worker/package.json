@@ -6,7 +6,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "encrypt-key": "ts-node src/encryptKey.ts"
+    "encrypt-key": "ts-node src/encryptKey.ts",
+    "test": "npm run build && node dist/guards.test.js && node dist/aml.test.js",
+    "test:w03": "npm run build && node scripts/w03-staging-test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
