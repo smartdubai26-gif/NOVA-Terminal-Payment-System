@@ -1,0 +1,1 @@
+"use strict";if(typeof globalThis.WebSocket=="undefined")try{globalThis.WebSocket=require("ws")}catch(e){try{const path=require("node:path"),workerDir=process.env.WORKER_DIR||path.resolve(__dirname,"..");globalThis.WebSocket=require(path.join(workerDir,"node_modules","ws"))}catch(e2){}}
