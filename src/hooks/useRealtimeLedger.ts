@@ -22,6 +22,7 @@ const REALTIME_TABLES = [
   'trading_accounts',
   'asset_rates',
   'audit_logs',
+  'kyc_submissions',
 ] as const;
 
 const INVALIDATE_DEBOUNCE_MS = 120;
@@ -87,6 +88,7 @@ export function useRealtimeLedger({
       debounceTimerRef.current = window.setTimeout(() => {
         if (!isDisposed) {
           void queryClient.invalidateQueries({ queryKey: queryKeyRef.current });
+          void queryClient.invalidateQueries({ queryKey: ['ntps', 'kyc_queue'] });
         }
       }, INVALIDATE_DEBOUNCE_MS);
     };

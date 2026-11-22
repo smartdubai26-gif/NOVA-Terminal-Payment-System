@@ -448,3 +448,29 @@
 3. **Root `ERESOLVE` & CI Fixes (`package.json`, `ntps-tron-worker/package.json`, `.github/workflows/worker-ci.yml`):**
    - Aligned root `devDependencies.esbuild` (`^0.28.0`) with `vite@^8.3.8` peerOptional range (`NEW-2`), resolving clean `npm install` without `--legacy-peer-deps`.
    - Added `test:w03` in `ntps-tron-worker/package.json` and created `.github/workflows/worker-ci.yml` running Node `22.x` worker tests and frontend typecheck/build (`NEW-3`).
+
+---
+
+## KYC / KYB Verification System (`010_kyc_verification_system.sql`)
+
+### Summary of Changes
+
+1. **PostgreSQL & Storage Compliance Layer (`supabase/migrations/010_kyc_verification_system.sql`):**
+   - Created `public.kyc_submissions` storing Individual KYC and Corporate KYB profiles (`account_type`, `full_legal_name`, `date_of_birth`, `nationality`, `country_of_residence`, `id_type`, `id_number`, `tax_or_reg_number`, `phone_number`, `address_line`, document storage paths, `status`, `rejection_reason`, `reviewed_by`, `reviewed_at`) with strict RLS (`kyc_select_own`, `kyc_insert_own`, `kyc_update_own`, `kyc_select_admin` for `compliance` & `super_admin`).
+   - Added `public.guard_kyc_submission_write()` trigger (`SET search_path = public`) preventing client mutations once `approved`, rejecting `..` path traversal and foreign user folder paths, resetting review fields, and forcing `status = 'pending_review'` for applicant writes.
+   - Provisioned private Storage bucket `kyc-documents` (`public = false`, 10 MB limit, PDF/JPG/PNG) with user folder RLS (`(storage.foldername(name))[1] = auth.uid()::text`) and read access for active `compliance`/`super_admin` admins.
+   - Created `public.review_kyc_submission(p_submission_id, p_decision, p_reason)` (`compliance`/`super_admin` only), enforcing non-empty rejection reasons and appending advisory-locked hash-chained audit logs (containing only IDs/roles/reason, no PII).
+   - Enforced hard `is_user_kyc_approved(v_uid)` checks inside `bootstrap_user_terminal` (for new Master Terminals), `provision_sub_terminal_atomic`, and `request_crypto_withdrawal`, and added `public.kyc_submissions` to `supabase_realtime`.
+
+2. **User Onboarding, Treasury Gating & Compliance Queue (`src/components/KycVerificationView.tsx`, `AdminPanelView.tsx`, `SubTerminalsView.tsx`, `DepositWithdrawView.tsx`, `App.tsx`, `ledgerEngine.ts`, `vercel.json`):**
+   - Added a 4-step **KYC / KYB Verification** onboarding wizard supporting Individual KYC & Corporate KYB, strict client MIME/size validation (`PDF`, `JPG`, `PNG` `<= 10 MB`), rejection feedback banners, and resubmission workflows.
+   - Gated Master Terminal creation (live mode), Sub-Terminal provisioning, and external crypto withdrawals behind `kycStatus === 'approved'` in both PostgreSQL RPCs and Local Demo Mode parity logic.
+   - Added the **KYC Queue** tab in `AdminPanelView` for `compliance`/`super_admin` operators with applicant dossier inspection, temporary 120-second signed document previews (`createSignedUrl`), Approve / Reject actions, and updated `vercel.json` CSP (`img-src`, `frame-src`) to allow Supabase Storage signed URL previews.
+
+### Manual Verification Checklist — KYC / KYB System
+
+1. Apply `supabase/migrations/010_kyc_verification_system.sql` after `001`–`009`.
+2. In Local Demo Mode or Live Mode:
+   - Verify unverified users are blocked from external withdrawals and Sub-Terminal provisioning with a direct CTA to **KYC / KYB Verification**.
+   - Complete the 4-step KYC/KYB wizard with valid PDF/JPG/PNG uploads (`<= 10 MB`) and confirm status transitions to `pending_review`.
+   - Open **Admin & Compliance -> KYC Queue**, inspect uploaded documents via temporary signed URL preview, test rejection (confirm mandatory reason enforcement + applicant resubmission banner), and approve submission to unlock treasury provisioning, sub-terminals, and withdrawals.

@@ -13,7 +13,9 @@ import {
   provisionSubTerminal,
   recordSimulatedTwoFactorAudit,
   resetLocalLedgerState,
+  reviewKycSubmission,
   reviewWithdrawalQueue,
+  submitKycSubmission,
   transferFromTrading,
   transferToTrading,
   updateSubTerminalPolicy,
@@ -26,6 +28,7 @@ import { useRealtimeLedger } from './useRealtimeLedger';
 import type {
   AdminProfile,
   AssetSymbol,
+  KycSubmissionInput,
   LedgerPosting,
   NetworkId,
   TerminalStatus,
@@ -205,6 +208,25 @@ export function useNtpsLedger(
     },
   });
 
+  const submitKycMutation = useMutation({
+    mutationFn: (input: KycSubmissionInput) =>
+      submitKycSubmission({ input, userId, authMode }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(ledgerQueryKey, result.state);
+    },
+  });
+
+  const adminReviewKycMutation = useMutation({
+    mutationFn: (params: {
+      submissionId: string;
+      decision: 'approved' | 'rejected';
+      reason?: string;
+    }) => reviewKycSubmission({ ...params, authMode, userId }),
+    onSuccess: (nextState) => {
+      queryClient.setQueryData(ledgerQueryKey, nextState);
+    },
+  });
+
   return {
     ledgerQuery,
     adminProfileQuery,
@@ -225,5 +247,7 @@ export function useNtpsLedger(
     verifyInvariantMutation,
     resetLedgerMutation,
     recordSimulated2FaAuditMutation,
+    submitKycMutation,
+    adminReviewKycMutation,
   };
 }

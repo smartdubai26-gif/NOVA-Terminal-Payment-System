@@ -118,6 +118,7 @@ Execute the base schema and all numbered migrations **in exact order** inside th
 8. `supabase/migrations/007_stage1_validation_hardening.sql` — Stage-1 validation & serialization hardening (`SYS-7`, `SYS-8`, `SYS-10`, `W-11`), enforcing Crockford Mod-37 terminal ID validation (`is_valid_ntps_terminal_id`), per-chain address validation (`is_valid_chain_address`), `aml_blocked_addresses` validation trigger, and advisory-locked `append_worker_audit_log` RPC.
 9. `supabase/migrations/008_stage2_defensive_hardening.sql` — Stage-2 worker lease hardening (`W-21`), adding atomic PgBouncer-safe `acquire_worker_lease` and `release_worker_lease` RPCs (`service_role` only) backed by `public.worker_checkpoints.metadata`.
 10. `supabase/migrations/009_worker_destination_trust.sql` — Worker destination trust & TOCTOU protection (`W-01`), defaulting `whitelist_addresses.verified` to `false` on client inserts, adding `verify_whitelist_address_admin`, locking active whitelist destinations against mutation, capturing `withdrawal_requests.destination_snapshot` at approval time, and re-enforcing verification inside `claim_approved_withdrawal_for_broadcast`.
+11. `supabase/migrations/010_kyc_verification_system.sql` — End-to-end KYC/KYB verification system: `public.kyc_submissions` with anti-tamper trigger and RLS, private `kyc-documents` Supabase Storage bucket (`10 MB`, PDF/JPG/PNG) scoped by `auth.uid()` folder + `compliance`/`super_admin` read access, `review_kyc_submission` RBAC RPC with hash-chained audit logging, and hard `'approved'` KYC gates on `bootstrap_user_terminal`, `provision_sub_terminal_atomic`, and `request_crypto_withdrawal`.
 
 #### Admin Authorization & Live Asset Rates (Optional)
 - **Provision Admin Operators:** Grant an operator access by inserting their Supabase Auth `user_id` into `public.app_admins` (via SQL Editor or `service_role`):
@@ -200,7 +201,7 @@ npm start
 
 ## Production Deployment Steps
 
-1. **Database Hardening:** Apply `supabase/schema.sql` and migrations `001` through `009`. Verify `verify_ledger_invariant()` reports `ok = true` and `imbalancedCount = 0`.
+1. **Database Hardening:** Apply `supabase/schema.sql` and migrations `001` through `010`. Verify `verify_ledger_invariant()` reports `ok = true` and `imbalancedCount = 0`.
 2. **Secrets Audit:** Confirm no `service_role`, `HOT_WALLET_*`, `RATE_REFRESH_SECRET`, or TOTP keys exist in `VITE_*` variables or the compiled `dist/` bundle (`npm run build`).
 3. **Edge Functions:** Set `RATE_REFRESH_SECRET`, deploy `supabase/functions/refresh-asset-rates`, and schedule periodic authenticated execution (e.g., via `pg_cron` or external scheduler) so `asset_rates` stays fresh.
 4. **Frontend Hosting:** Run `npm run lint && npm run build` and serve `dist/` behind TLS (configured with `vercel.json` CSP, HSTS, `X-Frame-Options: DENY`, and `nosniff` security headers).

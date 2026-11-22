@@ -9,11 +9,13 @@ import {
   CheckCircle2,
   AlertCircle,
   Radio,
+  UserCheck,
 } from 'lucide-react';
 import type {
   AssetRateMap,
   AssetSymbol,
   DepositAddressRecord,
+  KycStatus,
   NetworkId,
   TerminalRecord,
   WalletBalance,
@@ -40,6 +42,8 @@ interface DepositWithdrawViewProps {
   dailyWithdrawnUsd: number;
   assetRates?: AssetRateMap;
   authMode?: LedgerRuntimeMode;
+  kycStatus?: KycStatus;
+  onNavigateToKyc?: () => void;
   initialMode?: 'deposit' | 'withdraw';
   initialAsset?: AssetSymbol;
   onEnsureDepositAddress?: (params: {
@@ -84,6 +88,8 @@ export function DepositWithdrawView({
   dailyWithdrawnUsd,
   assetRates = ASSET_USD_RATES,
   authMode = 'local_demo',
+  kycStatus = 'unverified',
+  onNavigateToKyc,
   initialMode = 'deposit',
   initialAsset = 'USDT',
   onEnsureDepositAddress,
@@ -93,6 +99,7 @@ export function DepositWithdrawView({
   onCopy,
   onToast,
 }: DepositWithdrawViewProps) {
+  const isKycApproved = kycStatus === 'approved';
   const [mode, setMode] = useState<'deposit' | 'withdraw'>(initialMode);
   const [terminalUuid, setTerminalUuid] = useState(terminals[0]?.id ?? '');
   const [asset, setAsset] = useState<AssetSymbol>(initialAsset);
@@ -236,6 +243,7 @@ export function DepositWithdrawView({
   const exceedsAvail = totalDebit > availableAssetBalance;
 
   const canWithdraw =
+    isKycApproved &&
     Boolean(selectedWhitelist) &&
     !Number.isNaN(parsedWithdraw) &&
     parsedWithdraw > 0 &&
@@ -309,6 +317,14 @@ export function DepositWithdrawView({
   };
 
   const handleConfirmWithdrawal = async () => {
+    if (!isKycApproved) {
+      onToast(
+        'KYC verification required',
+        'Complete KYC/KYB approval before submitting external withdrawals.',
+        'error'
+      );
+      return;
+    }
     if (!activeTerminal || !selectedWhitelist) return;
     setIsWithdrawing(true);
     try {
@@ -851,13 +867,42 @@ export function DepositWithdrawView({
               </div>
             </div>
 
+            {!isKycApproved && (
+              <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs">
+                <div className="flex items-start gap-2.5 text-amber-100">
+                  <AlertCircle className="w-4 h-4 text-[#F5C542] shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-semibold">
+                      External Withdrawals Locked (KYC Status: {kycStatus.replace('_', ' ')})
+                    </div>
+                    <div className="text-[11px] text-amber-200/80 mt-0.5">
+                      Complete and obtain compliance approval on your Individual KYC or Corporate KYB
+                      dossier before dispatching funds to custody addresses.
+                    </div>
+                  </div>
+                </div>
+                {onNavigateToKyc && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToKyc}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#05070A] bg-[#F5C542] hover:bg-[#ffd666] rounded-lg whitespace-nowrap shrink-0"
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    {kycStatus === 'pending_review' ? 'View KYC Status' : 'Complete KYC Verification'}
+                  </button>
+                )}
+              </div>
+            )}
+
             <button
               type="button"
               disabled={!canWithdraw}
               onClick={() => setIs2FaOpen(true)}
               className="w-full py-3 px-5 text-sm font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
-              Authorize External Withdrawal
+              {isKycApproved
+                ? 'Authorize External Withdrawal'
+                : 'KYC Approval Required to Withdraw'}
             </button>
           </div>
 

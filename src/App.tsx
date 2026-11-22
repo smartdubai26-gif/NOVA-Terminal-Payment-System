@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   Terminal,
   TrendingUp,
+  UserCheck,
+  ArrowRight,
   X,
 } from 'lucide-react';
 import type { ActiveView, AssetSymbol, ToastItem } from './types/ntps';
@@ -29,6 +31,7 @@ import { LedgerAuditView } from './components/LedgerAuditView';
 import { InvoicesView } from './components/InvoicesView';
 import { TradingFundingView } from './components/TradingFundingView';
 import { AdminPanelView } from './components/AdminPanelView';
+import { KycVerificationView } from './components/KycVerificationView';
 import { ToastContainer } from './components/ToastContainer';
 import { TerminalQrModal } from './components/TerminalQrModal';
 import { SchemaModal } from './components/SchemaModal';
@@ -50,6 +53,7 @@ const NAV_ITEMS: {
   icon: typeof LayoutDashboard;
 }[] = [
   { id: 'dashboard', label: 'Overview & Wallets', icon: LayoutDashboard },
+  { id: 'kyc_verification', label: 'KYC / KYB Verification', icon: UserCheck },
   { id: 'transfer', label: 'Internal Transfer', icon: ArrowLeftRight },
   { id: 'deposit_withdraw', label: 'Deposit & Withdraw', icon: ArrowDownUp },
   { id: 'sub_terminals', label: 'Sub-Terminals & IDs', icon: GitBranch },
@@ -88,6 +92,8 @@ function NtpsWorkspace() {
     tradingTransferMutation,
     adminUpdateStatusMutation,
     adminReviewWithdrawalMutation,
+    submitKycMutation,
+    adminReviewKycMutation,
     verifyInvariantMutation,
     resetLedgerMutation,
     recordSimulated2FaAuditMutation,
@@ -134,6 +140,8 @@ function NtpsWorkspace() {
   const ledger = ledgerQuery.data;
   const masterTerminal = ledger?.terminals.find((t) => t.type === 'master') ?? ledger?.terminals[0];
   const subTerminals = ledger?.terminals.filter((t) => t.type === 'sub') ?? [];
+  const kycSubmission = ledger?.kycSubmission ?? null;
+  const kycStatus = kycSubmission?.status ?? 'unverified';
 
   return (
     <TwoFactorRuntimeProvider
@@ -389,16 +397,16 @@ function NtpsWorkspace() {
             )}
             <button
               type="button"
-              onClick={() => handleNavigate('transfer')}
+              onClick={() => handleNavigate(masterTerminal ? 'transfer' : 'kyc_verification')}
               className="px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg transition-colors whitespace-nowrap shrink-0"
             >
-              New Transfer
+              {masterTerminal ? 'New Transfer' : 'Verify KYC / KYB'}
             </button>
           </div>
         </header>
 
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] w-full mx-auto">
-          {ledgerQuery.isLoading || !ledger || !masterTerminal ? (
+          {ledgerQuery.isLoading || !ledger ? (
             <div className="space-y-6 animate-pulse">
               <div className="h-44 bg-[#0B0F16] border border-white/[0.06] rounded-xl" />
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -409,22 +417,129 @@ function NtpsWorkspace() {
             </div>
           ) : (
             <>
-              {activeView === 'dashboard' && (
-                <DashboardView
-                  masterTerminal={masterTerminal}
-                  subTerminals={subTerminals}
-                  wallets={ledger.wallets}
-                  transactions={ledger.transactions}
-                  dailyWithdrawnUsd={ledger.dailyWithdrawnUsd}
-                  assetRates={ledger.assetRates}
-                  assetRatesSource={ledger.assetRatesSource}
-                  onCopy={handleCopy}
-                  onOpenQr={() => setQrModalOpen(true)}
-                  onNavigate={handleNavigate}
+              {activeView === 'kyc_verification' && (
+                <KycVerificationView
+                  submission={kycSubmission}
+                  authMode={auth.authMode}
+                  userId={auth.effectiveUserId}
+                  onSubmitKyc={async (input) => {
+                    await submitKycMutation.mutateAsync(input);
+                  }}
+                  onToast={addToast}
                 />
               )}
 
-              {activeView === 'transfer' && (
+              {activeView === 'admin_panel' && (
+                <AdminPanelView
+                  terminals={ledger.terminals}
+                  wallets={ledger.wallets}
+                  transactions={ledger.transactions}
+                  ledgerPostings={ledger.ledgerPostings}
+                  auditLogs={ledger.auditLogs ?? []}
+                  withdrawalRequests={ledger.withdrawalRequests ?? []}
+                  kycQueue={ledger.kycQueue ?? []}
+                  assetRates={ledger.assetRates}
+                  authMode={auth.authMode}
+                  adminProfile={adminProfileQuery.data}
+                  onVerifyLedgerInvariant={() =>
+                    verifyInvariantMutation.mutateAsync(ledger.ledgerPostings)
+                  }
+                  onUpdateTerminalStatus={async (params) => {
+                    await adminUpdateStatusMutation.mutateAsync(params);
+                  }}
+                  onReviewWithdrawal={async (params) => {
+                    await adminReviewWithdrawalMutation.mutateAsync(params);
+                  }}
+                  onReviewKyc={async (params) => {
+                    await adminReviewKycMutation.mutateAsync(params);
+                  }}
+                  onToast={addToast}
+                />
+              )}
+
+              {activeView !== 'kyc_verification' &&
+                activeView !== 'admin_panel' &&
+                !masterTerminal && (
+                  <div className="max-w-2xl mx-auto mt-8 bg-[#0B0F16] border border-amber-500/30 rounded-xl p-7 space-y-5">
+                    <div className="flex items-start gap-4">
+                      <div className="w-11 h-11 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center shrink-0">
+                        <Lock className="w-5 h-5 text-[#F5C542]" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="text-[11px] font-mono uppercase tracking-wider text-[#F5C542]">
+                          Status · {kycStatus.replace('_', ' ')}
+                        </div>
+                        <h2 className="text-lg font-semibold text-white">
+                          Master Treasury Provisioning Locked Pending KYC / KYB Approval
+                        </h2>
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          {kycStatus === 'pending_review'
+                            ? 'Your identity and compliance dossier has been submitted and is currently awaiting compliance officer approval. Your Master Terminal ID and settlement wallets will activate automatically upon approval.'
+                            : kycStatus === 'rejected'
+                              ? `Your KYC / KYB submission requires correction: ${kycSubmission?.rejection_reason ?? 'Review compliance feedback and resubmit updated documents.'}`
+                              : 'PostgreSQL treasury onboarding requires verified Individual KYC or Corporate KYB compliance approval before generating your Crockford Base32 Master Terminal and enabling settlements.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-white/[0.08]">
+                      <button
+                        type="button"
+                        onClick={() => handleNavigate('kyc_verification')}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        <UserCheck className="w-4 h-4" />
+                        {kycStatus === 'pending_review'
+                          ? 'View KYC Submission Status'
+                          : kycStatus === 'rejected'
+                            ? 'Update & Resubmit KYC'
+                            : 'Complete KYC / KYB Verification'}
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+              {masterTerminal && activeView === 'dashboard' && (
+                <div className="space-y-6">
+                  {kycStatus !== 'approved' && (
+                    <div className="bg-[#0B0F16] border border-amber-500/25 rounded-xl px-5 py-3.5 flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 text-xs">
+                        <UserCheck className="w-4 h-4 text-[#F5C542] shrink-0" />
+                        <span className="text-slate-200">
+                          <strong className="font-semibold text-white">
+                            Compliance Gate ({kycStatus.replace('_', ' ').toUpperCase()}):
+                          </strong>{' '}
+                          External crypto withdrawals and Sub-Terminal provisioning require approved KYC / KYB verification.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleNavigate('kyc_verification')}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg transition-colors whitespace-nowrap shrink-0"
+                      >
+                        {kycStatus === 'pending_review' ? 'View Verification' : 'Complete KYC / KYB'}
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  <DashboardView
+                    masterTerminal={masterTerminal}
+                    subTerminals={subTerminals}
+                    wallets={ledger.wallets}
+                    transactions={ledger.transactions}
+                    dailyWithdrawnUsd={ledger.dailyWithdrawnUsd}
+                    assetRates={ledger.assetRates}
+                    assetRatesSource={ledger.assetRatesSource}
+                    onCopy={handleCopy}
+                    onOpenQr={() => setQrModalOpen(true)}
+                    onNavigate={handleNavigate}
+                  />
+                </div>
+              )}
+
+              {masterTerminal && activeView === 'transfer' && (
                 <InternalTransferView
                   terminals={ledger.terminals}
                   wallets={ledger.wallets}
@@ -437,7 +552,7 @@ function NtpsWorkspace() {
                 />
               )}
 
-              {activeView === 'deposit_withdraw' && (
+              {masterTerminal && activeView === 'deposit_withdraw' && (
                 <DepositWithdrawView
                   terminals={ledger.terminals}
                   wallets={ledger.wallets}
@@ -446,6 +561,7 @@ function NtpsWorkspace() {
                   dailyWithdrawnUsd={ledger.dailyWithdrawnUsd}
                   assetRates={ledger.assetRates}
                   authMode={auth.authMode}
+                  kycStatus={kycStatus}
                   initialMode={dwInitialMode}
                   initialAsset={preselectedAsset}
                   onEnsureDepositAddress={async (params) => {
@@ -460,16 +576,18 @@ function NtpsWorkspace() {
                   onAddWhitelist={async (params) => {
                     await addWhitelistMutation.mutateAsync(params);
                   }}
+                  onNavigateToKyc={() => handleNavigate('kyc_verification')}
                   onCopy={handleCopy}
                   onToast={addToast}
                 />
               )}
 
-              {activeView === 'sub_terminals' && (
+              {masterTerminal && activeView === 'sub_terminals' && (
                 <SubTerminalsView
                   terminals={ledger.terminals}
                   wallets={ledger.wallets}
                   assetRates={ledger.assetRates}
+                  kycStatus={kycStatus}
                   onProvisionSub={async (params) => {
                     await provisionSubMutation.mutateAsync(params);
                   }}
@@ -479,12 +597,13 @@ function NtpsWorkspace() {
                   onRebalance={async (params) => {
                     await internalTransferMutation.mutateAsync(params);
                   }}
+                  onNavigateToKyc={() => handleNavigate('kyc_verification')}
                   onCopy={handleCopy}
                   onToast={addToast}
                 />
               )}
 
-              {activeView === 'invoices' && (
+              {masterTerminal && activeView === 'invoices' && (
                 <InvoicesView
                   terminals={ledger.terminals}
                   wallets={ledger.wallets}
@@ -500,7 +619,7 @@ function NtpsWorkspace() {
                 />
               )}
 
-              {activeView === 'trading_funding' && (
+              {masterTerminal && activeView === 'trading_funding' && (
                 <TradingFundingView
                   terminals={ledger.terminals}
                   wallets={ledger.wallets}
@@ -512,31 +631,7 @@ function NtpsWorkspace() {
                 />
               )}
 
-              {activeView === 'admin_panel' && (
-                <AdminPanelView
-                  terminals={ledger.terminals}
-                  wallets={ledger.wallets}
-                  transactions={ledger.transactions}
-                  ledgerPostings={ledger.ledgerPostings}
-                  auditLogs={ledger.auditLogs ?? []}
-                  withdrawalRequests={ledger.withdrawalRequests ?? []}
-                  assetRates={ledger.assetRates}
-                  authMode={auth.authMode}
-                  adminProfile={adminProfileQuery.data}
-                  onVerifyLedgerInvariant={() =>
-                    verifyInvariantMutation.mutateAsync(ledger.ledgerPostings)
-                  }
-                  onUpdateTerminalStatus={async (params) => {
-                    await adminUpdateStatusMutation.mutateAsync(params);
-                  }}
-                  onReviewWithdrawal={async (params) => {
-                    await adminReviewWithdrawalMutation.mutateAsync(params);
-                  }}
-                  onToast={addToast}
-                />
-              )}
-
-              {activeView === 'ledger' && (
+              {masterTerminal && activeView === 'ledger' && (
                 <LedgerAuditView
                   terminals={ledger.terminals}
                   transactions={ledger.transactions}

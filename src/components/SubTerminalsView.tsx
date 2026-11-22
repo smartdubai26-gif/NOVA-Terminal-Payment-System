@@ -9,8 +9,16 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowRightLeft,
+  UserCheck,
 } from 'lucide-react';
-import type { AssetRateMap, AssetSymbol, TerminalRecord, TerminalStatus, WalletBalance } from '../types/ntps';
+import type {
+  AssetRateMap,
+  AssetSymbol,
+  KycStatus,
+  TerminalRecord,
+  TerminalStatus,
+  WalletBalance,
+} from '../types/ntps';
 import { ASSET_USD_RATES, computePortfolioUsd, getTerminalAssetTotal } from '../lib/ledgerEngine';
 import {
   generateMasterTerminalId,
@@ -24,6 +32,8 @@ interface SubTerminalsViewProps {
   terminals: TerminalRecord[];
   wallets: WalletBalance[];
   assetRates?: AssetRateMap;
+  kycStatus?: KycStatus;
+  onNavigateToKyc?: () => void;
   onProvisionSub: (params: {
     label: string;
     dailyLimitUsd: number;
@@ -52,12 +62,15 @@ export function SubTerminalsView({
   terminals,
   wallets,
   assetRates = ASSET_USD_RATES,
+  kycStatus = 'unverified',
+  onNavigateToKyc,
   onProvisionSub,
   onUpdatePolicy,
   onRebalance,
   onCopy,
   onToast,
 }: SubTerminalsViewProps) {
+  const isKycApproved = kycStatus === 'approved';
   const masterTerminal = terminals.find((t) => t.type === 'master') ?? terminals[0];
   const subTerminals = terminals.filter((t) => t.type === 'sub');
 
@@ -120,6 +133,14 @@ export function SubTerminalsView({
 
   const handleCreateSub = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isKycApproved) {
+      onToast(
+        'KYC verification required',
+        'Complete KYC/KYB verification before provisioning Sub-Terminals.',
+        'error'
+      );
+      return;
+    }
     if (!newLabel.trim()) {
       onToast('Label required', 'Enter a descriptive name for the Sub-Terminal desk or bot.', 'error');
       return;
@@ -237,18 +258,55 @@ export function SubTerminalsView({
               Segregated desk balances, allowed asset policies, and per-transaction caps
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowProvisionForm((v) => !v)}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg transition-colors whitespace-nowrap"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            {showProvisionForm ? 'Cancel' : 'Provision Sub-Terminal'}
-          </button>
+          {isKycApproved ? (
+            <button
+              type="button"
+              onClick={() => setShowProvisionForm((v) => !v)}
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg transition-colors whitespace-nowrap"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              {showProvisionForm ? 'Cancel' : 'Provision Sub-Terminal'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onNavigateToKyc?.()}
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#F5C542] hover:bg-[#ffd666] rounded-lg transition-colors whitespace-nowrap"
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              {kycStatus === 'pending_review' ? 'Check KYC Review Status' : 'Complete KYC to Provision'}
+            </button>
+          )}
         </div>
 
+        {!isKycApproved && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 text-xs">
+            <div className="flex items-start gap-2.5 text-amber-100">
+              <AlertTriangle className="w-4 h-4 text-[#F5C542] shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold">
+                  Sub-Terminal Provisioning Locked (KYC Status: {kycStatus.replace('_', ' ')})
+                </div>
+                <p className="text-amber-200/80 mt-0.5">
+                  PostgreSQL compliance policies require approved Individual KYC or Corporate KYB
+                  verification before issuing new Sub-Terminal IDs.
+                </p>
+              </div>
+            </div>
+            {onNavigateToKyc && (
+              <button
+                type="button"
+                onClick={onNavigateToKyc}
+                className="px-3.5 py-2 text-xs font-semibold text-[#05070A] bg-[#F5C542] hover:bg-[#ffd666] rounded-lg whitespace-nowrap shrink-0"
+              >
+                Open KYC Verification
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Provision Sub-Terminal Drawer */}
-        {showProvisionForm && (
+        {isKycApproved && showProvisionForm && (
           <form
             onSubmit={handleCreateSub}
             className="bg-[#0B0F16] border border-[#00E5FF]/30 rounded-xl p-6 space-y-5"

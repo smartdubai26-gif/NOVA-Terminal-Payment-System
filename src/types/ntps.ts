@@ -210,12 +210,62 @@ export interface AdminProfile {
   source: 'supabase' | 'local_demo';
 }
 
+export type KycAccountType = 'individual' | 'corporate';
+
+export type KycIdType = 'national_id' | 'passport' | 'commercial_registry';
+
+export type KycStatus = 'unverified' | 'pending_review' | 'approved' | 'rejected';
+
+export interface KycSubmissionRecord {
+  id: string;
+  user_id: string;
+  account_type: KycAccountType;
+  full_legal_name: string;
+  date_of_birth: string;
+  nationality: string;
+  country_of_residence: string;
+  id_type: KycIdType;
+  id_number: string;
+  tax_or_reg_number?: string | null;
+  phone_number: string;
+  address_line: string;
+  id_front_path: string;
+  id_back_path?: string | null;
+  selfie_path: string;
+  proof_of_address_path: string;
+  status: KycStatus;
+  rejection_reason?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KycSubmissionInput {
+  account_type: KycAccountType;
+  full_legal_name: string;
+  date_of_birth: string;
+  nationality: string;
+  country_of_residence: string;
+  id_type: KycIdType;
+  id_number: string;
+  tax_or_reg_number?: string;
+  phone_number: string;
+  address_line: string;
+  id_front_path: string;
+  id_back_path?: string;
+  selfie_path: string;
+  proof_of_address_path: string;
+}
+
 export type ActiveView =
   | 'dashboard'
   | 'transfer'
   | 'deposit_withdraw'
   | 'sub_terminals'
-  | 'ledger'
   | 'invoices'
   | 'trading_funding'
-  | 'admin_panel';
+  | 'kyc_verification'
+  | 'admin_panel'
+  | 'ledger';
+

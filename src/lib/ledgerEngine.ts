@@ -18,6 +18,11 @@ import type {
   DepositAddressRecord,
   InvoiceRecord,
   JournalEntry,
+  KycAccountType,
+  KycIdType,
+  KycStatus,
+  KycSubmissionInput,
+  KycSubmissionRecord,
   LedgerInvariantResult,
   LedgerPosting,
   NetworkId,
@@ -102,6 +107,8 @@ export interface NtpsLedgerState {
   auditLogs: AuditLogRecord[];
   depositAddresses: DepositAddressRecord[];
   withdrawalRequests: WithdrawalRequestRecord[];
+  kycSubmission: KycSubmissionRecord | null;
+  kycQueue: KycSubmissionRecord[];
   dailyWithdrawnUsd: number;
   assetRates: AssetRateMap;
   assetRatesSource?: string;
@@ -109,6 +116,14 @@ export interface NtpsLedgerState {
 }
 
 const STORAGE_KEY = 'ntps_ledger_state_v3';
+const DEMO_KYC_DOCS_STORAGE_KEY = 'ntps_demo_kyc_docs_v1';
+
+export const KYC_MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+export const KYC_ALLOWED_MIME_TYPES: ReadonlySet<string> = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+]);
 
 export const MASTER_TERMINAL_ID = buildMasterTerminalIdFromSeed('7K9P3M2');
 export const CP_APEX_ID = buildMasterTerminalIdFromSeed('4R8V2N6');
@@ -812,6 +827,33 @@ function createSeedState(): NtpsLedgerState {
     },
   ];
 
+  const sampleDemoKybQueue: KycSubmissionRecord[] = [
+    {
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddd01',
+      user_id: '88888888-8888-4888-8888-888888888899',
+      account_type: 'corporate',
+      full_legal_name: 'Meridian Digital Clearing Ltd.',
+      date_of_birth: '1986-04-14',
+      nationality: 'Switzerland',
+      country_of_residence: 'Switzerland',
+      id_type: 'commercial_registry',
+      id_number: 'CHE-419.802.311',
+      tax_or_reg_number: 'CHE-419.802.311-MWST',
+      phone_number: '+41 44 580 22 90',
+      address_line: 'Bahnhofstrasse 42, 8001 Zurich, Switzerland',
+      id_front_path: '88888888-8888-4888-8888-888888888899/id_front-sample.png',
+      id_back_path: '88888888-8888-4888-8888-888888888899/id_back-sample.png',
+      selfie_path: '88888888-8888-4888-8888-888888888899/selfie-sample.jpg',
+      proof_of_address_path: '88888888-8888-4888-8888-888888888899/proof_of_address-sample.pdf',
+      status: 'pending_review',
+      rejection_reason: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      created_at: iso(320),
+      updated_at: iso(320),
+    },
+  ];
+
   return {
     terminals,
     wallets,
@@ -824,6 +866,8 @@ function createSeedState(): NtpsLedgerState {
     auditLogs,
     depositAddresses,
     withdrawalRequests,
+    kycSubmission: null,
+    kycQueue: sampleDemoKybQueue,
     dailyWithdrawnUsd: 138450,
     assetRates: { ...ASSET_USD_RATES },
     assetRatesSource: 'local_demo',
@@ -846,9 +890,76 @@ function computeDailyWithdrawnUsd(
     .reduce((sum, tx) => sum + tx.amount * (rates[tx.asset] ?? 0), 0);
 }
 
-async function loadLiveSupabaseLedgerState(): Promise<NtpsLedgerState> {
+function mapKycSubmissionRow(row: Record<string, unknown>): KycSubmissionRecord {
+  const rawType = String(row.account_type ?? 'individual');
+  const accountType: KycAccountType = rawType === 'corporate' ? 'corporate' : 'individual';
+  const rawIdType = String(row.id_type ?? 'passport');
+  const idType: KycIdType =
+    rawIdType === 'national_id' || rawIdType === 'commercial_registry' ? rawIdType : 'passport';
+  const rawStatus = String(row.status ?? 'unverified');
+  const status: KycStatus =
+    rawStatus === 'pending_review' || rawStatus === 'approved' || rawStatus === 'rejected'
+      ? rawStatus
+      : 'unverified';
+
+  return {
+    id: String(row.id),
+    user_id: String(row.user_id),
+    account_type: accountType,
+    full_legal_name: String(row.full_legal_name ?? ''),
+    date_of_birth: String(row.date_of_birth ?? ''),
+    nationality: String(row.nationality ?? ''),
+    country_of_residence: String(row.country_of_residence ?? ''),
+    id_type: idType,
+    id_number: String(row.id_number ?? ''),
+    tax_or_reg_number: row.tax_or_reg_number ? String(row.tax_or_reg_number) : null,
+    phone_number: String(row.phone_number ?? ''),
+    address_line: String(row.address_line ?? ''),
+    id_front_path: String(row.id_front_path ?? ''),
+    id_back_path: row.id_back_path ? String(row.id_back_path) : null,
+    selfie_path: String(row.selfie_path ?? ''),
+    proof_of_address_path: String(row.proof_of_address_path ?? ''),
+    status,
+    rejection_reason: row.rejection_reason ? String(row.rejection_reason) : null,
+    reviewed_by: row.reviewed_by ? String(row.reviewed_by) : null,
+    reviewed_at: row.reviewed_at ? String(row.reviewed_at) : null,
+    created_at: String(row.created_at),
+    updated_at: String(row.updated_at),
+  };
+}
+
+function isMissingKycTableError(errMessage?: string): boolean {
+  if (!errMessage) return false;
+  const lower = errMessage.toLowerCase();
+  return lower.includes('kyc_submissions') && (lower.includes('does not exist') || lower.includes('schema cache'));
+}
+
+async function loadLiveSupabaseLedgerState(userId?: string): Promise<NtpsLedgerState> {
   if (!supabase) {
     throw new Error('Supabase client is not initialized.');
+  }
+
+  let effectiveUserId = userId;
+  if (!effectiveUserId) {
+    const { data: userData } = await supabase.auth.getUser();
+    effectiveUserId = userData.user?.id;
+  }
+
+  let kycSubmission: KycSubmissionRecord | null = null;
+  if (effectiveUserId) {
+    const { data: kycRow, error: kycErr } = await supabase
+      .from('kyc_submissions')
+      .select('*')
+      .eq('user_id', effectiveUserId)
+      .maybeSingle();
+
+    if (kycErr) {
+      if (!isMissingKycTableError(kycErr.message)) {
+        throw new Error(`Failed to query KYC verification status: ${kycErr.message}`);
+      }
+    } else if (kycRow) {
+      kycSubmission = mapKycSubmissionRow(kycRow as Record<string, unknown>);
+    }
   }
 
   let { data: terminalRows, error: termErr } = await supabase
@@ -860,13 +971,20 @@ async function loadLiveSupabaseLedgerState(): Promise<NtpsLedgerState> {
     throw new Error(`Failed to query terminals: ${termErr.message}`);
   }
 
-  if (!terminalRows || terminalRows.length === 0) {
+  const hasOwnMaster = effectiveUserId
+    ? (terminalRows ?? []).some(
+        (row) => String(row.owner_user_id) === effectiveUserId && row.type === 'master'
+      )
+    : (terminalRows ?? []).length > 0;
+
+  // Provision Master Terminal automatically only after KYC/KYB approval
+  if (!hasOwnMaster && kycSubmission?.status === 'approved') {
     const candidateCode = generateMasterTerminalId();
     const { error: bootErr } = await supabase.rpc('bootstrap_user_terminal', {
       p_terminal_id: candidateCode,
       p_label: 'NOVA Treasury Master',
     });
-    if (bootErr) {
+    if (bootErr && !bootErr.message.toLowerCase().includes('kyc')) {
       throw new Error(`Failed to bootstrap master terminal: ${bootErr.message}`);
     }
 
@@ -892,6 +1010,7 @@ async function loadLiveSupabaseLedgerState(): Promise<NtpsLedgerState> {
     wdReqRes,
     auditRes,
     ratesRes,
+    kycQueueRes,
   ] = await Promise.all([
     supabase.from('wallets').select('*').order('asset', { ascending: true }),
     supabase.from('transactions').select('*').order('created_at', { ascending: false }).limit(250),
@@ -904,6 +1023,7 @@ async function loadLiveSupabaseLedgerState(): Promise<NtpsLedgerState> {
     supabase.from('withdrawal_requests').select('*').order('created_at', { ascending: false }),
     supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(150),
     supabase.from('asset_rates').select('asset, usd_rate, source, fetched_at'),
+    supabase.from('kyc_submissions').select('*').order('updated_at', { ascending: false }).limit(150),
   ]);
 
   const firstError =
@@ -1075,6 +1195,13 @@ async function loadLiveSupabaseLedgerState(): Promise<NtpsLedgerState> {
     created_at: String(row.created_at),
   }));
 
+  const kycQueue: KycSubmissionRecord[] =
+    !kycQueueRes.error && Array.isArray(kycQueueRes.data)
+      ? kycQueueRes.data.map((row) => mapKycSubmissionRow(row as Record<string, unknown>))
+      : kycSubmission
+        ? [kycSubmission]
+        : [];
+
   return {
     terminals,
     wallets,
@@ -1087,6 +1214,8 @@ async function loadLiveSupabaseLedgerState(): Promise<NtpsLedgerState> {
     auditLogs,
     depositAddresses,
     withdrawalRequests,
+    kycSubmission,
+    kycQueue,
     dailyWithdrawnUsd: Math.round(computeDailyWithdrawnUsd(transactions, liveRates)),
     assetRates: liveRates,
     assetRatesSource,
@@ -1099,7 +1228,7 @@ export async function loadLedgerState(options?: {
   userId?: string;
 }): Promise<NtpsLedgerState> {
   if (isLiveSupabaseMode(options?.authMode)) {
-    return loadLiveSupabaseLedgerState();
+    return loadLiveSupabaseLedgerState(options?.userId);
   }
 
   if (typeof window !== 'undefined') {
@@ -1113,6 +1242,8 @@ export async function loadLedgerState(options?: {
           ...parsed,
           depositAddresses: parsed.depositAddresses ?? seed.depositAddresses,
           withdrawalRequests: parsed.withdrawalRequests ?? seed.withdrawalRequests,
+          kycSubmission: parsed.kycSubmission !== undefined ? parsed.kycSubmission : seed.kycSubmission,
+          kycQueue: Array.isArray(parsed.kycQueue) ? parsed.kycQueue : seed.kycQueue,
           assetRates: parsed.assetRates ?? seed.assetRates,
         };
       } catch {
@@ -1133,6 +1264,9 @@ export function saveLocalLedgerState(state: NtpsLedgerState): void {
 
 export function resetLocalLedgerState(): NtpsLedgerState {
   clearDemoTwoFactorGuard();
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(DEMO_KYC_DOCS_STORAGE_KEY);
+  }
   const seed = createSeedState();
   saveLocalLedgerState(seed);
   return seed;
@@ -1630,6 +1764,9 @@ export async function performWithdrawal(params: {
   }
 
   const state = await loadLedgerState({ authMode: params.authMode });
+  if (state.kycSubmission?.status !== 'approved') {
+    throw new Error('KYC/KYB approval is required before initiating external withdrawals.');
+  }
   const sourceTerm = state.terminals.find((t) => t.id === params.terminalUuid);
   if (!sourceTerm) throw new Error('Source terminal not found.');
 
@@ -1768,6 +1905,9 @@ export async function provisionSubTerminal(params: {
   authMode?: LedgerRuntimeMode;
 }): Promise<{ state: NtpsLedgerState; terminal: TerminalRecord }> {
   const state = await loadLedgerState({ authMode: params.authMode });
+  if (!isLiveSupabaseMode(params.authMode) && state.kycSubmission?.status !== 'approved') {
+    throw new Error('KYC/KYB approval is required before provisioning Sub-Terminals.');
+  }
   const master = state.terminals.find((t) => t.type === 'master');
   if (!master) throw new Error('Master terminal not found.');
 
@@ -2683,3 +2823,376 @@ export async function recordSimulatedTwoFactorAudit(params: {
   saveLocalLedgerState(nextState);
   return nextState;
 }
+
+// --- KYC / KYB Verification Engine ---
+
+export type KycDocumentSlot = 'id_front' | 'id_back' | 'selfie' | 'proof_of_address';
+
+const MIME_TO_EXT: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+};
+
+function readDemoDocsStore(): Record<string, { dataUrl: string; mimeType: string; name: string }> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(DEMO_KYC_DOCS_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, { dataUrl: string; mimeType: string; name: string }>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDemoDocEntry(
+  path: string,
+  entry: { dataUrl: string; mimeType: string; name: string }
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const store = readDemoDocsStore();
+    store[path] = entry;
+    window.localStorage.setItem(DEMO_KYC_DOCS_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // Ignore localStorage quota saturation in demo mode
+  }
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Unable to read uploaded document.'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Unable to read uploaded document.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildDemoSampleDocumentSvg(label: string, path: string): string {
+  const safeLabel = label.replace(/[<>&"']/g, '');
+  const safeFile = (path.split('/').pop() ?? 'document').replace(/[<>&"']/g, '');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="440" viewBox="0 0 760 440">
+    <rect width="760" height="440" fill="#0B0F16" />
+    <rect x="24" y="24" width="712" height="392" rx="12" fill="#05070A" stroke="#1E293B" stroke-width="2" />
+    <text x="52" y="84" fill="#00E5FF" font-family="monospace" font-size="18" font-weight="700">NTPS COMPLIANCE VAULT · SANDBOX DOCUMENT PREVIEW</text>
+    <text x="52" y="138" fill="#E2E8F0" font-family="sans-serif" font-size="24" font-weight="600">${safeLabel}</text>
+    <text x="52" y="182" fill="#94A3B8" font-family="monospace" font-size="14">Object: ${safeFile}</text>
+    <rect x="52" y="220" width="656" height="120" rx="8" fill="#0F172A" stroke="#334155" />
+    <text x="76" y="268" fill="#CBD5E1" font-family="sans-serif" font-size="15">Pre-seeded Local Demo sample document placeholder.</text>
+    <text x="76" y="298" fill="#64748B" font-family="sans-serif" font-size="13">Upload a real PDF, JPG, or PNG in KYC Verification to preview your own file here.</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+export function validateKycDocumentFile(file: File): { mimeType: string; ext: string } {
+  const mimeType = file.type.toLowerCase();
+  if (!KYC_ALLOWED_MIME_TYPES.has(mimeType)) {
+    throw new Error('Unsupported file type. Upload a PDF, JPG, or PNG document.');
+  }
+  if (file.size <= 0) {
+    throw new Error('Selected document file is empty.');
+  }
+  if (file.size > KYC_MAX_FILE_BYTES) {
+    throw new Error('Document exceeds the 10 MB maximum file size limit.');
+  }
+  const ext = MIME_TO_EXT[mimeType];
+  if (!ext) {
+    throw new Error('Unsupported document format.');
+  }
+  return { mimeType, ext };
+}
+
+export async function uploadKycDocument(params: {
+  file: File;
+  slot: KycDocumentSlot;
+  userId: string;
+  authMode?: LedgerRuntimeMode;
+}): Promise<string> {
+  const { mimeType, ext } = validateKycDocumentFile(params.file);
+  const ownerFolder = (params.userId || 'local-demo-operator').replace(/[^a-zA-Z0-9_-]/g, '');
+  const storagePath = `${ownerFolder}/${params.slot}-${Date.now()}-${createUuid().slice(0, 8)}.${ext}`;
+
+  if (isLiveSupabaseMode(params.authMode) && supabase) {
+    const { data: userData } = await supabase.auth.getUser();
+    const liveUid = userData.user?.id;
+    if (!liveUid) {
+      throw new Error('Authenticated Supabase session required to upload KYC documents.');
+    }
+    const livePath = `${liveUid}/${params.slot}-${Date.now()}-${createUuid().slice(0, 8)}.${ext}`;
+    const { error } = await supabase.storage
+      .from('kyc-documents')
+      .upload(livePath, params.file, {
+        contentType: mimeType,
+        upsert: false,
+      });
+
+    if (error) {
+      throw new Error(`Document upload failed: ${error.message}`);
+    }
+    return livePath;
+  }
+
+  const dataUrl = await fileToDataUrl(params.file);
+  writeDemoDocEntry(storagePath, {
+    dataUrl,
+    mimeType,
+    name: params.file.name,
+  });
+  return storagePath;
+}
+
+export async function submitKycSubmission(params: {
+  input: KycSubmissionInput;
+  userId?: string;
+  authMode?: LedgerRuntimeMode;
+}): Promise<{ state: NtpsLedgerState; submission: KycSubmissionRecord }> {
+  const { input } = params;
+  if (input.full_legal_name.trim().length < 2) {
+    throw new Error('Full legal name or registered entity name is required.');
+  }
+  if (!input.date_of_birth.trim()) {
+    throw new Error('Date of birth / incorporation date is required.');
+  }
+  if (!input.nationality.trim() || !input.country_of_residence.trim()) {
+    throw new Error('Nationality and country of residence are required.');
+  }
+  if (input.id_number.trim().length < 3) {
+    throw new Error('A valid government ID or registration number is required.');
+  }
+  if (input.account_type === 'corporate' && !input.tax_or_reg_number?.trim()) {
+    throw new Error('Tax / commercial registration number is required for Corporate KYB.');
+  }
+  if (input.phone_number.trim().length < 5 || input.address_line.trim().length < 5) {
+    throw new Error('Valid phone number and residential / registered address are required.');
+  }
+  if (!input.id_front_path || !input.selfie_path || !input.proof_of_address_path) {
+    throw new Error('ID Front, Liveness Selfie, and Proof of Address documents are required.');
+  }
+  if (input.id_type !== 'passport' && !input.id_back_path) {
+    throw new Error('ID Back document is required for National ID and Commercial Registry.');
+  }
+
+  if (isLiveSupabaseMode(params.authMode) && supabase) {
+    const { data: userData } = await supabase.auth.getUser();
+    const liveUid = userData.user?.id ?? params.userId;
+    if (!liveUid) {
+      throw new Error('Authenticated session required to submit KYC verification.');
+    }
+
+    const payload = {
+      user_id: liveUid,
+      account_type: input.account_type,
+      full_legal_name: input.full_legal_name.trim(),
+      date_of_birth: input.date_of_birth.trim(),
+      nationality: input.nationality.trim(),
+      country_of_residence: input.country_of_residence.trim(),
+      id_type: input.id_type,
+      id_number: input.id_number.trim(),
+      tax_or_reg_number: input.tax_or_reg_number?.trim() || null,
+      phone_number: input.phone_number.trim(),
+      address_line: input.address_line.trim(),
+      id_front_path: input.id_front_path.trim(),
+      id_back_path: input.id_back_path?.trim() || null,
+      selfie_path: input.selfie_path.trim(),
+      proof_of_address_path: input.proof_of_address_path.trim(),
+      status: 'pending_review',
+    };
+
+    const { data, error } = await supabase
+      .from('kyc_submissions')
+      .upsert(payload, { onConflict: 'user_id' })
+      .select('*')
+      .single();
+
+    if (error) {
+      throw new Error(`Failed to submit KYC profile: ${error.message}`);
+    }
+
+    const nextState = await loadLedgerState({ authMode: params.authMode, userId: liveUid });
+    const submission = mapKycSubmissionRow(data as Record<string, unknown>);
+    return { state: nextState, submission };
+  }
+
+  const state = await loadLedgerState({ authMode: params.authMode, userId: params.userId });
+  const nowIso = new Date().toISOString();
+  const demoUserId = params.userId || '99999999-9999-4999-8999-999999999901';
+  const existing = state.kycSubmission;
+
+  if (existing?.status === 'approved') {
+    throw new Error('Approved KYC/KYB records cannot be altered directly.');
+  }
+
+  const submission: KycSubmissionRecord = {
+    id: existing?.id ?? createUuid(),
+    user_id: demoUserId,
+    account_type: input.account_type,
+    full_legal_name: input.full_legal_name.trim(),
+    date_of_birth: input.date_of_birth.trim(),
+    nationality: input.nationality.trim(),
+    country_of_residence: input.country_of_residence.trim(),
+    id_type: input.id_type,
+    id_number: input.id_number.trim(),
+    tax_or_reg_number: input.tax_or_reg_number?.trim() || null,
+    phone_number: input.phone_number.trim(),
+    address_line: input.address_line.trim(),
+    id_front_path: input.id_front_path.trim(),
+    id_back_path: input.id_back_path?.trim() || null,
+    selfie_path: input.selfie_path.trim(),
+    proof_of_address_path: input.proof_of_address_path.trim(),
+    status: 'pending_review',
+    rejection_reason: null,
+    reviewed_by: null,
+    reviewed_at: null,
+    created_at: existing?.created_at ?? nowIso,
+    updated_at: nowIso,
+  };
+
+  const nextQueue = [
+    submission,
+    ...state.kycQueue.filter((item) => item.id !== submission.id && item.user_id !== submission.user_id),
+  ];
+
+  const lastLog = state.auditLogs[0];
+  const prevHash =
+    lastLog?.row_hash ?? '0x0000000000000000000000000000000000000000000000000000000000000000';
+  const newAudit: AuditLogRecord = {
+    id: createUuid(),
+    event_type: 'KYC_SUBMISSION_RECEIVED',
+    actor: demoUserId,
+    details: `Submitted ${submission.account_type.toUpperCase()} verification package (${submission.id.slice(0, 8)}) for compliance review.`,
+    severity: 'info',
+    prev_hash: prevHash,
+    row_hash: generateTxHash('0x'),
+    created_at: nowIso,
+  };
+
+  const nextState: NtpsLedgerState = {
+    ...state,
+    kycSubmission: submission,
+    kycQueue: nextQueue,
+    auditLogs: [newAudit, ...state.auditLogs],
+  };
+  saveLocalLedgerState(nextState);
+  return { state: nextState, submission };
+}
+
+export async function createKycDocumentSignedUrl(params: {
+  path: string;
+  label?: string;
+  authMode?: LedgerRuntimeMode;
+}): Promise<{ url: string; mimeType: string }> {
+  const cleanPath = params.path.trim();
+  if (!cleanPath || cleanPath.includes('..')) {
+    throw new Error('Invalid KYC document storage path.');
+  }
+
+  if (isLiveSupabaseMode(params.authMode) && supabase) {
+    const { data, error } = await supabase.storage
+      .from('kyc-documents')
+      .createSignedUrl(cleanPath, 120);
+
+    if (error || !data?.signedUrl) {
+      throw new Error(error?.message || 'Unable to generate temporary signed document URL.');
+    }
+
+    const parsed = new URL(data.signedUrl);
+    if (parsed.protocol !== 'https:' && parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') {
+      throw new Error('Blocked non-HTTPS document preview URL.');
+    }
+
+    const lower = cleanPath.toLowerCase();
+    const mimeType = lower.endsWith('.pdf')
+      ? 'application/pdf'
+      : lower.endsWith('.png')
+        ? 'image/png'
+        : 'image/jpeg';
+    return { url: data.signedUrl, mimeType };
+  }
+
+  const demoStore = readDemoDocsStore();
+  const stored = demoStore[cleanPath];
+  if (stored?.dataUrl) {
+    return { url: stored.dataUrl, mimeType: stored.mimeType };
+  }
+
+  return {
+    url: buildDemoSampleDocumentSvg(params.label ?? 'KYC Supporting Document', cleanPath),
+    mimeType: 'image/svg+xml',
+  };
+}
+
+export async function reviewKycSubmission(params: {
+  submissionId: string;
+  decision: 'approved' | 'rejected';
+  reason?: string;
+  authMode?: LedgerRuntimeMode;
+  userId?: string;
+}): Promise<NtpsLedgerState> {
+  const cleanReason = (params.reason ?? '').trim();
+  if (params.decision === 'rejected' && !cleanReason) {
+    throw new Error('Mandatory compliance rejection reason is required.');
+  }
+
+  if (isLiveSupabaseMode(params.authMode) && supabase) {
+    const { error } = await supabase.rpc('review_kyc_submission', {
+      p_submission_id: params.submissionId,
+      p_decision: params.decision,
+      p_reason: cleanReason || null,
+    });
+    if (error) {
+      throw new Error(formatAdminPermissionError(error.message));
+    }
+    return loadLedgerState({ authMode: params.authMode, userId: params.userId });
+  }
+
+  const state = await loadLedgerState({ authMode: params.authMode, userId: params.userId });
+  const target =
+    state.kycQueue.find((k) => k.id === params.submissionId) ??
+    (state.kycSubmission?.id === params.submissionId ? state.kycSubmission : undefined);
+  if (!target) {
+    throw new Error('KYC submission record not found.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const updated: KycSubmissionRecord = {
+    ...target,
+    status: params.decision,
+    rejection_reason: params.decision === 'rejected' ? cleanReason : null,
+    reviewed_by: 'admin-compliance-officer',
+    reviewed_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  const nextQueue = state.kycQueue.map((item) => (item.id === updated.id ? updated : item));
+  const nextOwn =
+    state.kycSubmission?.id === updated.id ? updated : state.kycSubmission;
+
+  const lastLog = state.auditLogs[0];
+  const prevHash =
+    lastLog?.row_hash ?? '0x0000000000000000000000000000000000000000000000000000000000000000';
+  const newAudit: AuditLogRecord = {
+    id: createUuid(),
+    event_type: `KYC_SUBMISSION_${params.decision.toUpperCase()}`,
+    actor: 'admin-compliance-officer',
+    details: `KYC submission ${updated.id.slice(0, 8)} (${updated.account_type}) was ${params.decision} by compliance.${cleanReason ? ` Reason: ${cleanReason}` : ''}`,
+    severity: params.decision === 'approved' ? 'info' : 'warn',
+    prev_hash: prevHash,
+    row_hash: generateTxHash('0x'),
+    created_at: nowIso,
+  };
+
+  const nextState: NtpsLedgerState = {
+    ...state,
+    kycSubmission: nextOwn,
+    kycQueue: nextQueue,
+    auditLogs: [newAudit, ...state.auditLogs],
+  };
+  saveLocalLedgerState(nextState);
+  return nextState;
+}
+

@@ -60,7 +60,7 @@ export function SchemaModal({ open, onClose, onCopy }: SchemaModalProps) {
             hardening, apply{' '}
             <code className="font-mono text-white">supabase/migrations/001_harden_rls.sql</code>{' '}
             through{' '}
-            <code className="font-mono text-white">009_worker_destination_trust.sql</code> in
+            <code className="font-mono text-white">010_kyc_verification_system.sql</code> in
             sequential order afterward.
           </p>
         </div>
