@@ -143,12 +143,20 @@ export async function verifyUserTotp(
  * Replaces any static/hardcoded test codes.
  */
 export function generateRandomDemoOtp(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-    const arr = new Uint32Array(1);
-    crypto.getRandomValues(arr);
-    return String(arr[0] % 1_000_000).padStart(6, '0');
+  if (
+    typeof globalThis.crypto === 'undefined' ||
+    typeof globalThis.crypto.getRandomValues !== 'function'
+  ) {
+    throw new Error('Cryptographic randomness (crypto.getRandomValues) is required.');
   }
-  return String(Math.floor(Math.random() * 1_000_000)).padStart(6, '0');
+  const arr = new Uint32Array(1);
+  const maxValid = Math.floor(0x1_0000_0000 / 1_000_000) * 1_000_000;
+  let value = 0;
+  do {
+    globalThis.crypto.getRandomValues(arr);
+    value = arr[0];
+  } while (value >= maxValid);
+  return String(value % 1_000_000).padStart(6, '0');
 }
 
 interface DemoGuardState {

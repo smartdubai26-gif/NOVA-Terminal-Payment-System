@@ -21,17 +21,48 @@ interface CoinGeckoResponse {
   tether?: CoinGeckoPriceEntry;
 }
 
+async function timingSafeBearerMatch(
+  headerValue: string | null,
+  expectedSecret: string
+): Promise<boolean> {
+  if (!headerValue) return false;
+  const prefix = 'Bearer ';
+  if (!headerValue.startsWith(prefix)) return false;
+  const provided = headerValue.slice(prefix.length);
+
+  const enc = new TextEncoder();
+  const [aHash, bHash] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(provided)),
+    crypto.subtle.digest('SHA-256', enc.encode(expectedSecret)),
+  ]);
+  const aBytes = new Uint8Array(aHash);
+  const bBytes = new Uint8Array(bHash);
+  let diff = aBytes.length ^ bBytes.length;
+  for (let i = 0; i < aBytes.length; i += 1) {
+    diff |= aBytes[i] ^ bBytes[i];
+  }
+  return diff === 0;
+}
+
 Deno.serve(async (req: Request) => {
   try {
-    const cronSecret = Deno.env.get('RATE_REFRESH_SECRET');
-    if (cronSecret) {
-      const authHeader = req.headers.get('authorization') ?? '';
-      if (authHeader !== `Bearer ${cronSecret}`) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
+    const cronSecret = Deno.env.get('RATE_REFRESH_SECRET')?.trim();
+    if (!cronSecret) {
+      return new Response(
+        JSON.stringify({ error: 'RATE_REFRESH_SECRET is not configured' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const authorized = await timingSafeBearerMatch(
+      req.headers.get('authorization'),
+      cronSecret
+    );
+    if (!authorized) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL');

@@ -362,3 +362,73 @@
 2. **Frontend RBAC Integration (`src/types/ntps.ts`, `src/lib/ledgerEngine.ts`, `src/hooks/useNtpsLedger.ts`, `src/components/AdminPanelView.tsx`, `src/App.tsx`)**
    - Added `AdminRole`, `AdminProfile`, `fetchAdminProfile()`, and `adminProfileQuery` (falling back safely to a simulated `super_admin` profile in Local Demo Mode).
    - Added an RBAC role status banner and a mandatory compliance review reason input in `AdminPanelView.tsx`, surfacing clear permission error alerts when an account lacks `ops`, `compliance`, or `super_admin` authorization.
+
+---
+
+## Stage-0 Launch Blocker Remediation (`006_stage0_security_hardening.sql`)
+
+### Summary of Changes
+
+1. **`W-04` Pre-Broadcast Policy & Atomic Broadcast Claim (`ntps-tron-worker/src/policyGuard.ts`, `ntps-tron-worker/src/index.ts`, `supabase/migrations/006_stage0_security_hardening.sql`):**
+   - Added `evaluateBroadcastPolicy`, `computePrior24hOutflowUsd`, and `resolveUsdRate` in the TRON worker to verify `terminal.status === 'active'`, `allowed_assets`, `per_tx_limit_usd`, and 24-hour `daily_limit_usd` (excluding the current pending request transaction and reversed/failed rows) prior to any on-chain send.
+   - Added `claim_approved_withdrawal_for_broadcast(p_request_id)` (`service_role` only) in PostgreSQL locking the withdrawal request, transaction, and terminal `FOR UPDATE`, re-checking all limits/status server-side, and claiming `'approved' -> 'broadcast'` atomically (with safe fallback conditional update if `006` has not yet been applied). Blocked requests revert to `'review'` with `WITHDRAWAL_POLICY_BLOCKED` audit logging and alerts.
+2. **`W-05` Alert Same-Origin Enforcement (`ntps-tron-worker/src/alerts.ts`, `ntps-tron-worker/.env.example`):**
+   - Added `resolveAlertEdgeFunctionDispatch` requiring `https:` (or localhost `http:` for dev) and `new URL(ALERT_EDGE_FUNCTION_URL).origin === new URL(SUPABASE_URL).origin`, refusing cross-origin dispatch and logging `[ALERT EDGE FUNCTION BLOCKED]` so `SUPABASE_SERVICE_ROLE_KEY` cannot leak. Prefers dedicated `ALERT_EDGE_FUNCTION_TOKEN` when configured.
+3. **`SYS-1` & `SYS-5` Mandatory Four-Eyes Compliance Queue (`supabase/schema.sql`, `003`, `006`, `src/components/DepositWithdrawView.tsx`, `src/lib/ledgerEngine.ts`):**
+   - Restricted `p_auto_approve = true` strictly to `service_role` (and active RBAC ops/compliance/super_admin `< $25,000` in `006`); removed the `"Authorize Immediate Worker Broadcast"` checkbox in `DepositWithdrawView.tsx` and forced `p_auto_approve: false` / `'review'` across `performWithdrawal`.
+4. **`SYS-2` Sub-Terminal Limit Integrity (`supabase/schema.sql`, `006`, `src/components/SubTerminalsView.tsx`, `src/lib/ledgerEngine.ts`):**
+   - Replaced silent UI coercions with strict validation (`daily > 0`, `perTx > 0`, `perTx <= daily`, `daily <= master.daily_limit_usd`, non-empty `allowedAssets`) and locked `v_master FOR UPDATE` in `provision_sub_terminal_atomic`.
+5. **`SYS-3` Admin RPC Privilege Hardening (`supabase/schema.sql`, `001_harden_rls.sql`):**
+   - Removed the `owner_user_id = auth.uid()` self-approval / self-unfreeze bypass in `schema.sql` for `review_withdrawal_request` and `update_terminal_status_admin` and revoked `authenticated` execute grants prior to RBAC migration `005`.
+6. **`SYS-4` Deposit Credit Validation (`supabase/schema.sql`, `006`):**
+   - Enforced `request.jwt.claim.role = 'service_role'` inside `credit_crypto_deposit`, added `pg_advisory_xact_lock`, checked duplicate `tx_hash` in both `journal_entries` and `transactions`, and verified terminal existence, wallet ownership (`wallet.terminal_id = p_terminal_id`), and `wallet.asset = p_asset`.
+7. **`SYS-6` Mandatory Secret on `refresh-asset-rates` (`supabase/functions/refresh-asset-rates/index.ts`):**
+   - Made `RATE_REFRESH_SECRET` required (HTTP `500` when unconfigured) and validated `Authorization: Bearer <token>` with constant-time SHA-256 + XOR comparison (HTTP `401` on mismatch).
+8. **`SYS-9` Double-Credit Reversal Protection (`supabase/schema.sql`, `005`, `006`, `src/lib/ledgerEngine.ts`, `src/components/AdminPanelView.tsx`):**
+   - Blocked rejection/reversal if `state NOT IN ('review', 'approved')`, `tx.status = 'completed'`, `tx.tx_hash IS NOT NULL`, `broadcast_at IS NOT NULL`, `tx_hash_candidate IS NOT NULL`, or a `rev_<tx_id>` journal already exists; disabled UI reject buttons when on-chain/broadcast evidence exists and displays `"Manual reconciliation required"`.
+
+---
+
+## Stage-1 Pre-Production Hardening (`007_stage1_validation_hardening.sql`)
+
+### Summary of Changes
+
+1. **`W-07` Deterministic FIFO Queue Ordering & Unsupported Network Handoff (`ntps-tron-worker/src/index.ts`, `ntps-tron-worker/src/workerHelpers.ts`):**
+   - Ordered approved withdrawal polling `.order('created_at', { ascending: true }).limit(25)` and classified unsupported assets/networks or missing relations explicitly, transitioning them back to `state = 'review'` with `UNSUPPORTED_NETWORK_FOR_WORKER` error tracking, `WITHDRAWAL_UNSUPPORTED_NETWORK` audit logs, and ops alerts so `USDT (TRC20)` payouts are never starved.
+2. **`W-08` & `W-13` Unlinked Deposit Wallet Alerting & Checkpoint Cursor Preservation (`ntps-tron-worker/src/index.ts`, `ntps-tron-worker/src/workerHelpers.ts`):**
+   - Replaced silent skips on unlinked deposit addresses with critical logging, `DEPOSIT_WALLET_UNLINKED` audit + deduplicated alerts, and safe cursor progression; preserved `lastKnownGlobalCursorMs` (hydrated from `worker_checkpoints`) across transient polling errors so `cursor_ms` never resets to `0`.
+3. **`W-09` & `W-10` Worker Key KDF Hardening & Production Plaintext Guard (`ntps-tron-worker/src/cryptoKey.ts`, `encryptKey.ts`, `.env.example`):**
+   - Upgraded `encryptHotWalletPrivateKey` to `ntps:v2:aes256gcm:` with `scrypt N = 131072`, `maxmem = 256 MiB`, and 32-character minimum passphrases while preserving `ntps:v1:aes256gcm:` read compatibility (`N = 16384`) with rotation warnings.
+   - Blocked plaintext `HOT_WALLET_PRIVATE_KEY` fallback when `NODE_ENV=production` unless `ALLOW_PLAINTEXT_KEY=true` is explicitly configured.
+4. **`W-11` Advisory-Locked Worker Audit Log RPC (`supabase/migrations/007_stage1_validation_hardening.sql`, `ntps-tron-worker/src/auditLog.ts`):**
+   - Added `service_role`-only `append_worker_audit_log` RPC using `pg_advisory_xact_lock(hashtext('ntps_audit_logs_chain'))` to prevent `prev_hash` races under concurrent worker writes, with graceful fallback before migration `007`.
+5. **`W-12` Stale Broadcast Reconciliation & Graceful Shutdown (`ntps-tron-worker/src/index.ts`, `ntps-tron-worker/src/workerHelpers.ts`):**
+   - Added startup/periodic `reconcileStaleBroadcastWithdrawals()` to finalize stranded `'broadcast'` requests that already recorded a `tx_hash`/`tx_hash_candidate` or move unhashed timed-out requests back to `'review'` with critical alerts; added `SIGTERM` / `SIGINT` handlers to clear polling intervals and drain in-flight cycles cleanly.
+6. **`W-14` Worker Dependency Vulnerability Remediation (`ntps-tron-worker/package.json`, `ntps-tron-worker/package-lock.json`):**
+   - Upgraded `tronweb` to `^6.5.2` (updating transitive `axios` from `1.18.0` to `1.20.0`), bringing `npm --prefix ntps-tron-worker audit` to **0 vulnerabilities**.
+7. **`SYS-7`, `SYS-8`, & `SYS-10` PostgreSQL Format, Checksum & Trigger Validation (`supabase/migrations/007_stage1_validation_hardening.sql`):**
+   - Added `is_valid_ntps_terminal_id` (enforcing Crockford Base32 Mod-37 checksums in `bootstrap_user_terminal` and `provision_sub_terminal_atomic` + master prefix match), `is_valid_chain_address` (enforcing chain-specific address validation in `register_deposit_address` and `add_whitelist_address`), and `trg_validate_aml_blocked_address` (`BEFORE INSERT OR UPDATE` on `public.aml_blocked_addresses`).
+
+---
+
+## Stage-2 Periodic & Defensive Hardening (`008_stage2_defensive_hardening.sql`)
+
+### Summary of Changes
+
+1. **`W-16`, `W-17`, & `SYS-16` Expanded Secret Redaction & Audit Failure Resilience (`ntps-tron-worker/src/redact.ts`, `auditLog.ts`, `alerts.ts`):**
+   - Expanded `sanitizeErrorMessage()` to redact JWTs (`eyJ...`), `Bearer` tokens, URL userinfo credentials, key/value secret fields, 64-char hex keys, and configured runtime environment secrets (`HOT_WALLET_DECRYPTION_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `TRONGRID_API_KEY`, `ALERT_EDGE_FUNCTION_TOKEN`, `RATE_REFRESH_SECRET`).
+   - Added consecutive audit write failure tracking (`AUDIT_FAILURE_ALERT_THRESHOLD`), critical `WORKER_AUDIT_LOG_FAILURE` alerts, and an append-only local JSONL fallback buffer (`0o600` mode).
+2. **`W-18`, `W-19`, `W-20`, & `W-21` Deposit Verification, Trusted Hosts, TRX Fee Guard & Worker Lease (`supabase/migrations/008_stage2_defensive_hardening.sql`, `workerHelpers.ts`, `index.ts`):**
+   - Added `validateAndParseTronGridDeposit()` to verify `token_info.address === USDT_CONTRACT`, recipient `to === deposit_address`, valid `token_info.decimals`, and positive integer value scaling.
+   - Enforced `TRON_FULL_HOST` origin allowlist validation via `resolveTrustedTronHost()` (`api.trongrid.io`, `api.shasta.trongrid.io`, `nile.trongrid.io`, plus explicit `TRON_ALLOWED_HOSTS`).
+   - Added pre-broadcast hot wallet native TRX reserve check (`evaluateHotWalletTrxBalance`, `MIN_HOT_WALLET_TRX`) emitting `HOT_WALLET_LOW_TRX` audit logs/alerts and pausing broadcasts when low.
+   - Added PgBouncer-safe atomic cycle lease RPCs (`acquire_worker_lease`, `release_worker_lease`) in migration `008` and documented single-replica worker deployment.
+3. **`W-22`, `W-23`, `W-24`, & `W-25` Pre-Claim AML, Reconciliation Errors, Prod Dotenv & Key CLI Hardening (`index.ts`, `encryptKey.ts`):**
+   - Moved `screenWithdrawalDestination()` prior to `claim_approved_withdrawal_for_broadcast` so AML-blocked withdrawals return to `'review'` without stamping `broadcast_at`.
+   - Surfaced duplicate-guard reconciliation failures (`WITHDRAWAL_RECONCILE_FAILED`) with audit logging and ops alerts instead of swallowing errors.
+   - Guarded `dotenv.config()` to non-production (`NODE_ENV !== 'production'`), replaced `Math.random()` retry jitter with `crypto.randomInt`, and hardened `encryptKey.ts` to disallow `PLAIN_HOT_WALLET_PRIVATE_KEY` env loading in favor of `--key-file` or masked TTY input.
+4. **`SYS-11` – `SYS-15`, `SYS-17`, & `SYS-18` Frontend Headers, Dependency Hygiene, CSPRNG & Docs (`vercel.json`, `package.json`, `src/lib/*`, `.env.example`, `README.md`):**
+   - Added `/vercel.json` enforcing CSP, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, and `Strict-Transport-Security`.
+   - Removed unused `express` and `@types/express` from root `package.json` and aligned root and worker package version ranges with installed dependencies.
+   - Replaced all frontend `Math.random()` ID/reference/hash/OTP calls with `crypto.getRandomValues` / `crypto.randomUUID`.
+   - Reinforced explicit `localStorage` messaging for Local Demo Mode (`DEMO MODE — localStorage`) and documented `RATE_REFRESH_SECRET` in `.env.example` and `README.md`.

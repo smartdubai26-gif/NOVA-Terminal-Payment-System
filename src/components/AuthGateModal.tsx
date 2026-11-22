@@ -150,12 +150,12 @@ export function AuthGateModal({
                   ? session
                     ? 'Operator Session & RLS Identity'
                     : 'Authenticate NTPS Session'
-                  : 'Local Preview Mode Active'}
+                  : 'Local Demo Mode (localStorage)'}
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
                 {isSupabaseConfigured
                   ? 'Row Level Security enforces auth.uid() isolation'
-                  : 'Supabase env vars not set · Sandboxed local engine'}
+                  : 'Supabase env vars not set · Browser localStorage sandbox only'}
               </p>
             </div>
           </div>
@@ -177,11 +177,12 @@ export function AuthGateModal({
               <div className="p-4 rounded-lg bg-[#05070A] border border-white/[0.08] space-y-2.5">
                 <div className="flex items-center gap-2 text-xs font-medium text-[#F5C542]">
                   <Terminal className="w-3.5 h-3.5" />
-                  <span>Running Local Double-Entry Preview</span>
+                  <span>Sandboxed Browser localStorage Ledger</span>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  All terminal, wallet, invoice, and ledger operations run locally in browser state
-                  with full schema parity. Configure{' '}
+                  All terminal, wallet, invoice, and ledger operations persist locally in browser{' '}
+                  <code className="font-mono text-slate-200">localStorage</code> only—no live
+                  Supabase database writes or on-chain TRC-20 transfers are executed. Configure{' '}
                   <code className="font-mono text-slate-200">VITE_SUPABASE_URL</code> and{' '}
                   <code className="font-mono text-slate-200">VITE_SUPABASE_ANON_KEY</code> to
                   activate live <code className="font-mono text-slate-200">supabase.auth</code>{' '}
@@ -190,6 +191,10 @@ export function AuthGateModal({
               </div>
 
               <div className="p-3.5 rounded-lg bg-[#05070A] border border-white/[0.06] space-y-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-400">Demo Storage Scope</span>
+                  <span className="font-mono text-[#F5C542]">window.localStorage (local only)</span>
+                </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-slate-400">Preview Operator</span>
                   <span className="font-mono text-slate-200">{LOCAL_DEMO_EMAIL}</span>
@@ -207,7 +212,7 @@ export function AuthGateModal({
                 onClick={onClose}
                 className="w-full py-2.5 px-4 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg transition-colors"
               >
-                Continue in Local Preview
+                Continue in Local Demo Mode
               </button>
             </div>
           ) : session && user ? (

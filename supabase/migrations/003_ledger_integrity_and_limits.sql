@@ -497,6 +497,7 @@ CREATE OR REPLACE FUNCTION public.request_crypto_withdrawal(
 ) RETURNS UUID AS $$
 DECLARE
   v_uid UUID := auth.uid();
+  v_jwt_role TEXT := COALESCE(NULLIF(current_setting('request.jwt.claim.role', true), ''), '');
   v_term public.terminals%ROWTYPE;
   v_wl public.whitelist_addresses%ROWTYPE;
   v_existing_tx_id UUID;
@@ -645,7 +646,14 @@ BEGIN
   )
   RETURNING id INTO v_tx_id;
 
-  v_req_state := CASE WHEN COALESCE(p_auto_approve, FALSE) THEN 'approved' ELSE 'review' END;
+  -- Four-eyes security: regular authenticated users cannot self-approve, and >= $25,000 always enters review
+  v_req_state := CASE
+    WHEN COALESCE(p_auto_approve, FALSE)
+      AND v_jwt_role = 'service_role'
+      AND v_usd_amount < 25000
+    THEN 'approved'
+    ELSE 'review'
+  END;
 
   INSERT INTO public.withdrawal_requests (transaction_id, whitelist_address_id, state)
   VALUES (v_tx_id, v_wl.id, v_req_state);
@@ -660,7 +668,8 @@ BEGIN
     'WITHDRAWAL_REQUESTED',
     v_uid::TEXT,
     v_term.id::TEXT,
-    'Queued ' || p_amount::TEXT || ' ' || p_asset || ' (' || p_network || ', $' || round(v_usd_amount, 2)::TEXT || ') to ' || v_wl.address || ' in state=' || v_req_state,
+    'Queued ' || p_amount::TEXT || ' ' || p_asset || ' (' || p_network || ', $' || round(v_usd_amount, 2)::TEXT || ') to ' || v_wl.address || ' in state=' || v_req_state
+      || CASE WHEN COALESCE(p_auto_approve, FALSE) AND v_req_state <> 'approved' THEN ' (auto_approve ignored)' ELSE '' END,
     CASE WHEN v_req_state = 'review' THEN 'warn' ELSE 'info' END,
     v_prev_hash,
     '0x' || encode(digest(v_prev_hash || v_tx_id::TEXT || now()::TEXT, 'sha256'), 'hex')

@@ -109,7 +109,6 @@ export function DepositWithdrawView({
   const [selectedWhitelistId, setSelectedWhitelistId] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawMemo, setWithdrawMemo] = useState('');
-  const [autoApproveWorker, setAutoApproveWorker] = useState(false);
   const [is2FaOpen, setIs2FaOpen] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
 
@@ -321,15 +320,13 @@ export function DepositWithdrawView({
         whitelistAddressId: selectedWhitelist.id,
         amount: parsedWithdraw,
         memo: withdrawMemo.trim() || `Custody withdrawal (${selectedWhitelist.label})`,
-        autoApprove: autoApproveWorker,
+        autoApprove: false,
       });
       setIs2FaOpen(false);
       setWithdrawAmount('');
       setWithdrawMemo('');
       onToast(
-        autoApproveWorker
-          ? 'Withdrawal approved for worker broadcast'
-          : 'Withdrawal queued for compliance review',
+        'Withdrawal queued for compliance review',
         `${formatAssetAmount(parsedWithdraw, asset)} ${asset} to ${selectedWhitelist.label}`,
         'success'
       );
@@ -842,22 +839,17 @@ export function DepositWithdrawView({
               />
             </div>
 
-            <label className="flex items-center justify-between gap-3 p-3 rounded-lg bg-[#05070A] border border-white/[0.08] cursor-pointer">
+            <div className="flex items-start gap-2.5 p-3 rounded-lg bg-[#05070A] border border-white/[0.08] text-xs">
+              <ShieldCheck className="w-4 h-4 text-[#00E5FF] shrink-0 mt-0.5" />
               <div>
-                <div className="text-xs font-medium text-slate-200">
-                  Authorize Immediate Worker Broadcast
+                <div className="font-medium text-slate-200">
+                  Mandatory Four-Eyes Compliance Queue
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  Sets withdrawal_requests.state to approved immediately; otherwise queued in review for Admin Panel
+                  All operator withdrawal requests enter <code className="font-mono text-slate-200">review</code> state and require independent <code className="font-mono text-slate-200">ops</code>/<code className="font-mono text-slate-200">compliance</code> sign-off before worker broadcast.
                 </div>
               </div>
-              <input
-                type="checkbox"
-                checked={autoApproveWorker}
-                onChange={(e) => setAutoApproveWorker(e.target.checked)}
-                className="w-4 h-4 accent-[#00E5FF] rounded"
-              />
-            </label>
+            </div>
 
             <button
               type="button"

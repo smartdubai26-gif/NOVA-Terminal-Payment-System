@@ -98,6 +98,26 @@ export function SubTerminalsView({
     return [...list, sym];
   };
 
+  const validatePolicyLimits = (dailyRaw: string, perTxRaw: string, assets: AssetSymbol[]) => {
+    const daily = Number(dailyRaw);
+    const perTx = Number(perTxRaw);
+    if (!Number.isFinite(daily) || daily <= 0 || !Number.isFinite(perTx) || perTx <= 0) {
+      throw new Error('Daily and per-transaction limits must be strictly positive numbers.');
+    }
+    if (perTx > daily) {
+      throw new Error('Per-transaction limit cannot exceed the daily limit.');
+    }
+    if (daily > masterTerminal.daily_limit_usd) {
+      throw new Error(
+        `Daily limit ($${daily.toLocaleString()}) cannot exceed Master Terminal cap ($${masterTerminal.daily_limit_usd.toLocaleString()}).`
+      );
+    }
+    if (assets.length === 0) {
+      throw new Error('Select at least one allowed asset.');
+    }
+    return { daily, perTx };
+  };
+
   const handleCreateSub = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLabel.trim()) {
@@ -106,15 +126,22 @@ export function SubTerminalsView({
     }
     setIsProvisioning(true);
     try {
+      const { daily, perTx } = validatePolicyLimits(newDailyLimit, newPerTxLimit, newAllowedAssets);
       await onProvisionSub({
-        label: newLabel,
-        dailyLimitUsd: Math.max(1000, Number(newDailyLimit) || 100000),
-        perTxLimitUsd: Math.max(500, Number(newPerTxLimit) || 25000),
+        label: newLabel.trim(),
+        dailyLimitUsd: daily,
+        perTxLimitUsd: perTx,
         allowedAssets: newAllowedAssets,
       });
       setNewLabel('');
       setShowProvisionForm(false);
       onToast('Sub-Terminal provisioned', `${previewNextSubId} is now active.`, 'success');
+    } catch (err) {
+      onToast(
+        'Provisioning blocked',
+        err instanceof Error ? err.message : 'Unable to provision Sub-Terminal.',
+        'error'
+      );
     } finally {
       setIsProvisioning(false);
     }
@@ -129,14 +156,23 @@ export function SubTerminalsView({
   };
 
   const handleSavePolicy = async (sub: TerminalRecord) => {
-    await onUpdatePolicy({
-      terminalUuid: sub.id,
-      dailyLimitUsd: Math.max(1000, Number(editDaily) || 50000),
-      perTxLimitUsd: Math.max(500, Number(editPerTx) || 15000),
-      allowedAssets: editAssets,
-    });
-    setEditingSubUuid(null);
-    onToast('Policy updated', `Limits and asset permissions saved for ${sub.terminalId}`, 'success');
+    try {
+      const { daily, perTx } = validatePolicyLimits(editDaily, editPerTx, editAssets);
+      await onUpdatePolicy({
+        terminalUuid: sub.id,
+        dailyLimitUsd: daily,
+        perTxLimitUsd: perTx,
+        allowedAssets: editAssets,
+      });
+      setEditingSubUuid(null);
+      onToast('Policy updated', `Limits and asset permissions saved for ${sub.terminalId}`, 'success');
+    } catch (err) {
+      onToast(
+        'Policy update blocked',
+        err instanceof Error ? err.message : 'Unable to save sub-terminal policy.',
+        'error'
+      );
+    }
   };
 
   const handleToggleStatus = async (sub: TerminalRecord) => {
@@ -677,7 +713,9 @@ export function SubTerminalsView({
             type="button"
             onClick={() => {
               const base = labValidation.masterBase ?? masterTerminal.terminalId;
-              const id = generateSubTerminalId(base, Math.floor(1 + Math.random() * 19));
+              const arr = new Uint32Array(1);
+              globalThis.crypto.getRandomValues(arr);
+              const id = generateSubTerminalId(base, 1 + (arr[0] % 19));
               setLabInput(id);
             }}
             className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-100 bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] rounded-lg transition-colors whitespace-nowrap"

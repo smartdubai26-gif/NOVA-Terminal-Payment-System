@@ -166,40 +166,89 @@ CREATE OR REPLACE FUNCTION public.credit_crypto_deposit(
   p_tx_hash TEXT
 ) RETURNS VOID AS $$
 DECLARE
+  v_jwt_role TEXT := COALESCE(NULLIF(current_setting('request.jwt.claim.role', true), ''), '');
+  v_clean_hash TEXT := trim(COALESCE(p_tx_hash, ''));
+  v_term public.terminals%ROWTYPE;
+  v_wallet public.wallets%ROWTYPE;
   v_journal_id UUID;
   v_ref TEXT;
 BEGIN
+  IF v_jwt_role <> 'service_role' THEN
+    RAISE EXCEPTION 'Forbidden: credit_crypto_deposit requires service_role'
+      USING ERRCODE = '42501';
+  END IF;
+
   IF p_amount IS NULL OR p_amount <= 0 THEN
     RAISE EXCEPTION 'Deposit amount must be positive';
   END IF;
 
+  IF p_asset NOT IN ('USDT', 'BTC', 'ETH') THEN
+    RAISE EXCEPTION 'Unsupported deposit asset: %', p_asset;
+  END IF;
+
+  IF p_network NOT IN ('TRC20', 'ERC20', 'BTC', 'ETH', 'ARBITRUM') THEN
+    RAISE EXCEPTION 'Unsupported deposit network: %', p_network;
+  END IF;
+
+  IF v_clean_hash = '' THEN
+    RAISE EXCEPTION 'On-chain transaction hash is required';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtext('dep_' || v_clean_hash));
+
   IF EXISTS (
-    SELECT 1 FROM public.journal_entries WHERE idempotency_key = 'dep_' || p_tx_hash
+    SELECT 1 FROM public.journal_entries WHERE idempotency_key = 'dep_' || v_clean_hash
+  ) OR EXISTS (
+    SELECT 1 FROM public.transactions WHERE tx_hash = v_clean_hash
   ) THEN
     RETURN;
   END IF;
 
+  SELECT * INTO v_term
+  FROM public.terminals
+  WHERE id = p_terminal_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Target terminal % not found', p_terminal_id;
+  END IF;
+
+  SELECT * INTO v_wallet
+  FROM public.wallets
+  WHERE id = p_wallet_id
+    AND terminal_id = p_terminal_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Target wallet % does not belong to terminal %', p_wallet_id, p_terminal_id;
+  END IF;
+
+  IF v_wallet.asset <> p_asset THEN
+    RAISE EXCEPTION 'Wallet asset (%) does not match deposit asset (%)', v_wallet.asset, p_asset;
+  END IF;
+
   INSERT INTO public.journal_entries (kind, idempotency_key, memo)
-  VALUES ('deposit', 'dep_' || p_tx_hash, 'Confirmed on-chain deposit (' || p_network || ')')
+  VALUES ('deposit', 'dep_' || v_clean_hash, 'Confirmed on-chain deposit (' || p_network || ')')
   RETURNING id INTO v_journal_id;
 
   INSERT INTO public.ledger_postings (journal_id, account_ref, asset, amount)
   VALUES
     (v_journal_id, 'system:hot_' || lower(p_asset) || '_' || lower(p_network), p_asset, -p_amount),
-    (v_journal_id, 'wallet:' || p_wallet_id::TEXT, p_asset, p_amount);
+    (v_journal_id, 'wallet:' || v_wallet.id::TEXT, p_asset, p_amount);
 
   UPDATE public.wallets
   SET available = available + p_amount,
       version = version + 1,
       updated_at = now()
-  WHERE id = p_wallet_id;
+  WHERE id = v_wallet.id
+    AND terminal_id = p_terminal_id;
 
-  v_ref := 'NTX-' || to_char(now(), 'YYYY-MM-DD') || '-' || substr(md5(p_tx_hash), 1, 6);
+  v_ref := 'NTX-' || to_char(now(), 'YYYY-MM-DD') || '-' || substr(md5(v_clean_hash), 1, 6);
 
   INSERT INTO public.transactions (
     reference, terminal_id, counterparty_terminal, type, asset, network, amount, fee, status, tx_hash, journal_id, memo
   ) VALUES (
-    v_ref, p_terminal_id, 'onchain:' || p_network, 'deposit', p_asset, p_network, p_amount, 0, 'completed', p_tx_hash, v_journal_id, 'Confirmed on-chain deposit'
+    v_ref, p_terminal_id, 'onchain:' || p_network, 'deposit', p_asset, p_network, p_amount, 0, 'completed', v_clean_hash, v_journal_id, 'Confirmed on-chain deposit'
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
@@ -426,7 +475,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- 12D. Atomic Withdrawal Request (Locks Funds in Escrow + Creates withdrawal_requests Row)
+-- 12D. Atomic Withdrawal Request (Locks Funds in Escrow + Forces Compliance Queue)
 CREATE OR REPLACE FUNCTION public.request_crypto_withdrawal(
   p_terminal_id UUID,
   p_asset TEXT,
@@ -440,6 +489,7 @@ CREATE OR REPLACE FUNCTION public.request_crypto_withdrawal(
 ) RETURNS UUID AS $$
 DECLARE
   v_uid UUID := auth.uid();
+  v_jwt_role TEXT := COALESCE(NULLIF(current_setting('request.jwt.claim.role', true), ''), '');
   v_term public.terminals%ROWTYPE;
   v_wl public.whitelist_addresses%ROWTYPE;
   v_existing_tx_id UUID;
@@ -556,7 +606,11 @@ BEGIN
   )
   RETURNING id INTO v_tx_id;
 
-  v_req_state := CASE WHEN COALESCE(p_auto_approve, FALSE) THEN 'approved' ELSE 'review' END;
+  -- Authenticated users cannot bypass four-eyes review via p_auto_approve
+  v_req_state := CASE
+    WHEN COALESCE(p_auto_approve, FALSE) AND v_jwt_role = 'service_role' THEN 'approved'
+    ELSE 'review'
+  END;
 
   INSERT INTO public.withdrawal_requests (transaction_id, whitelist_address_id, state)
   VALUES (v_tx_id, v_wl.id, v_req_state);
@@ -571,7 +625,8 @@ BEGIN
     'WITHDRAWAL_REQUESTED',
     v_uid::TEXT,
     v_term.id::TEXT,
-    'Queued ' || p_amount::TEXT || ' ' || p_asset || ' (' || p_network || ') to ' || v_wl.address || ' in state=' || v_req_state,
+    'Queued ' || p_amount::TEXT || ' ' || p_asset || ' (' || p_network || ') to ' || v_wl.address || ' in state=' || v_req_state
+      || CASE WHEN COALESCE(p_auto_approve, FALSE) AND v_req_state <> 'approved' THEN ' (auto_approve ignored)' ELSE '' END,
     CASE WHEN v_req_state = 'review' THEN 'warn' ELSE 'info' END,
     v_prev_hash,
     '0x' || encode(digest(v_prev_hash || v_tx_id::TEXT || now()::TEXT, 'sha256'), 'hex')
@@ -581,13 +636,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- 12E. Atomic Withdrawal Review (Approve for TRON Worker or Reject with Full Ledger Reversal)
+-- 12E. Atomic Withdrawal Review (Service-Role Only in Base Schema; Admin RBAC Enabled by 005)
 CREATE OR REPLACE FUNCTION public.review_withdrawal_request(
   p_transaction_id UUID,
   p_action TEXT
 ) RETURNS VOID AS $$
 DECLARE
   v_uid UUID := auth.uid();
+  v_jwt_role TEXT := COALESCE(NULLIF(current_setting('request.jwt.claim.role', true), ''), '');
   v_tx public.transactions%ROWTYPE;
   v_req public.withdrawal_requests%ROWTYPE;
   v_rev_journal_id UUID;
@@ -595,8 +651,9 @@ DECLARE
   v_wallet_id UUID;
   v_prev_hash TEXT;
 BEGIN
-  IF v_uid IS NULL THEN
-    RAISE EXCEPTION 'Authentication required';
+  IF v_jwt_role <> 'service_role' THEN
+    RAISE EXCEPTION 'Forbidden: admin RBAC migration (005) or service_role required'
+      USING ERRCODE = '42501';
   END IF;
 
   IF p_action NOT IN ('approve', 'reject') THEN
@@ -605,12 +662,11 @@ BEGIN
 
   SELECT tx.* INTO v_tx
   FROM public.transactions tx
-  JOIN public.terminals t ON t.id = tx.terminal_id
-  WHERE tx.id = p_transaction_id AND t.owner_user_id = v_uid
+  WHERE tx.id = p_transaction_id
   FOR UPDATE;
 
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'Withdrawal transaction not found or unauthorized';
+    RAISE EXCEPTION 'Withdrawal transaction not found';
   END IF;
 
   SELECT * INTO v_req
@@ -632,7 +688,20 @@ BEGIN
     WHERE id = v_req.id;
   ELSE
     IF v_req.state NOT IN ('review', 'approved') THEN
-      RAISE EXCEPTION 'Cannot reject withdrawal in state %', v_req.state;
+      RAISE EXCEPTION 'Cannot reject withdrawal in state %; manual reconciliation required', v_req.state
+        USING ERRCODE = '40001';
+    END IF;
+
+    IF v_tx.status = 'completed' OR v_tx.tx_hash IS NOT NULL OR v_req.broadcast_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Withdrawal % already has broadcast or on-chain tx_hash evidence; manual reconciliation required', v_tx.reference
+        USING ERRCODE = '40001';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1 FROM public.journal_entries WHERE idempotency_key = 'rev_' || v_tx.id::TEXT
+    ) THEN
+      RAISE EXCEPTION 'Withdrawal % reversal already recorded', v_tx.reference
+        USING ERRCODE = '40001';
     END IF;
 
     UPDATE public.withdrawal_requests
@@ -674,7 +743,7 @@ BEGIN
   INSERT INTO public.audit_logs (event_type, actor, terminal_id, details, severity, prev_hash, row_hash)
   VALUES (
     'WITHDRAWAL_REVIEW_' || upper(p_action),
-    v_uid::TEXT,
+    COALESCE(v_uid::TEXT, 'service_role'),
     v_tx.terminal_id::TEXT,
     'Transaction ' || v_tx.reference || ' was ' || p_action || 'd by compliance officer.',
     CASE WHEN p_action = 'approve' THEN 'info' ELSE 'warn' END,
@@ -905,7 +974,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- 12H. Provision Sub-Terminal & Wallets Atomically
+-- 12H. Provision Sub-Terminal & Wallets Atomically (Validated Limits <= Master Caps)
 CREATE OR REPLACE FUNCTION public.provision_sub_terminal_atomic(
   p_terminal_code TEXT,
   p_label TEXT,
@@ -920,25 +989,48 @@ DECLARE
   v_asset TEXT;
   v_net TEXT;
   v_prev_hash TEXT;
+  v_clean_label TEXT := trim(COALESCE(p_label, ''));
 BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'Authentication required';
+  END IF;
+
+  IF v_clean_label = '' THEN
+    RAISE EXCEPTION 'Sub-terminal label is required';
+  END IF;
+
+  IF p_daily_limit IS NULL OR p_daily_limit <= 0 OR p_per_tx_limit IS NULL OR p_per_tx_limit <= 0 THEN
+    RAISE EXCEPTION 'Sub-terminal daily and per-transaction limits must be positive';
+  END IF;
+
+  IF p_per_tx_limit > p_daily_limit THEN
+    RAISE EXCEPTION 'Per-transaction limit ($%) cannot exceed daily limit ($%)', p_per_tx_limit, p_daily_limit;
+  END IF;
+
+  IF array_length(p_allowed_assets, 1) IS NULL OR NOT (p_allowed_assets <@ ARRAY['USDT', 'BTC', 'ETH']::TEXT[]) THEN
+    RAISE EXCEPTION 'Allowed assets must be a non-empty subset of USDT, BTC, ETH';
   END IF;
 
   SELECT * INTO v_master
   FROM public.terminals
   WHERE owner_user_id = v_uid AND type = 'master'
   ORDER BY created_at ASC
-  LIMIT 1;
+  LIMIT 1
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Master terminal not found';
   END IF;
 
+  IF p_daily_limit > v_master.daily_limit_usd THEN
+    RAISE EXCEPTION 'Sub-terminal daily limit ($%) cannot exceed Master Terminal cap ($%)',
+      p_daily_limit, v_master.daily_limit_usd;
+  END IF;
+
   INSERT INTO public.terminals (
     terminal_id, type, parent_id, owner_user_id, label, tier, status, daily_limit_usd, per_tx_limit_usd, allowed_assets
   ) VALUES (
-    p_terminal_code, 'sub', v_master.id, v_uid, p_label, 'Desk', 'active', p_daily_limit, p_per_tx_limit, p_allowed_assets
+    p_terminal_code, 'sub', v_master.id, v_uid, v_clean_label, 'Desk', 'active', p_daily_limit, p_per_tx_limit, p_allowed_assets
   )
   RETURNING id INTO v_sub_id;
 
@@ -960,7 +1052,7 @@ BEGIN
     'SUB_TERMINAL_PROVISIONED',
     v_uid::TEXT,
     v_sub_id::TEXT,
-    'Provisioned sub-terminal ' || p_terminal_code || ' (' || p_label || ')',
+    'Provisioned sub-terminal ' || p_terminal_code || ' (' || v_clean_label || ')',
     'info',
     v_prev_hash,
     '0x' || encode(digest(v_prev_hash || v_sub_id::TEXT || now()::TEXT, 'sha256'), 'hex')
@@ -970,7 +1062,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- 12I. Admin Terminal Status Change + Hash-Chained Audit Log
+-- 12I. Admin Terminal Status Change (Service-Role Only in Base Schema; Admin RBAC Enabled by 005)
 CREATE OR REPLACE FUNCTION public.update_terminal_status_admin(
   p_terminal_id UUID,
   p_status TEXT,
@@ -978,11 +1070,13 @@ CREATE OR REPLACE FUNCTION public.update_terminal_status_admin(
 ) RETURNS VOID AS $$
 DECLARE
   v_uid UUID := auth.uid();
+  v_jwt_role TEXT := COALESCE(NULLIF(current_setting('request.jwt.claim.role', true), ''), '');
   v_term public.terminals%ROWTYPE;
   v_prev_hash TEXT;
 BEGIN
-  IF v_uid IS NULL THEN
-    RAISE EXCEPTION 'Authentication required';
+  IF v_jwt_role <> 'service_role' THEN
+    RAISE EXCEPTION 'Forbidden: admin RBAC migration (005) or service_role required'
+      USING ERRCODE = '42501';
   END IF;
 
   IF p_status NOT IN ('active', 'suspended', 'locked', 'restricted') THEN
@@ -991,11 +1085,11 @@ BEGIN
 
   SELECT * INTO v_term
   FROM public.terminals
-  WHERE id = p_terminal_id AND owner_user_id = v_uid
+  WHERE id = p_terminal_id
   FOR UPDATE;
 
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'Terminal not found or unauthorized';
+    RAISE EXCEPTION 'Terminal not found';
   END IF;
 
   UPDATE public.terminals
@@ -1010,7 +1104,7 @@ BEGIN
   INSERT INTO public.audit_logs (event_type, actor, terminal_id, details, severity, prev_hash, row_hash)
   VALUES (
     'TERMINAL_STATUS_' || upper(p_status),
-    v_uid::TEXT,
+    COALESCE(v_uid::TEXT, 'service_role'),
     v_term.id::TEXT,
     'Reason: ' || COALESCE(NULLIF(trim(p_reason), ''), 'Compliance status update'),
     CASE WHEN p_status = 'active' THEN 'info' ELSE 'warn' END,
@@ -1072,14 +1166,18 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 REVOKE ALL ON FUNCTION public.credit_crypto_deposit(UUID, UUID, TEXT, TEXT, NUMERIC, TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.credit_crypto_deposit(UUID, UUID, TEXT, TEXT, NUMERIC, TEXT) TO service_role;
 
+REVOKE ALL ON FUNCTION public.review_withdrawal_request(UUID, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.review_withdrawal_request(UUID, TEXT) TO service_role;
+
+REVOKE ALL ON FUNCTION public.update_terminal_status_admin(UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.update_terminal_status_admin(UUID, TEXT, TEXT) TO service_role;
+
 GRANT EXECUTE ON FUNCTION public.bootstrap_user_terminal(TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.execute_internal_transfer(UUID, TEXT, TEXT, NUMERIC, TEXT, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.request_crypto_withdrawal(UUID, TEXT, TEXT, UUID, NUMERIC, NUMERIC, TEXT, TEXT, BOOLEAN) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.review_withdrawal_request(UUID, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.pay_invoice_atomic(UUID, UUID, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.transfer_trading_bridge(UUID, UUID, NUMERIC, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.provision_sub_terminal_atomic(TEXT, TEXT, NUMERIC, NUMERIC, TEXT[]) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.update_terminal_status_admin(UUID, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.verify_ledger_invariant() TO authenticated;
 
 -- ============================================================================

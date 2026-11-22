@@ -468,11 +468,11 @@ GRANT EXECUTE ON FUNCTION public.credit_crypto_deposit(UUID, UUID, TEXT, TEXT, N
 REVOKE ALL ON FUNCTION public.bootstrap_user_terminal(TEXT, TEXT) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.execute_internal_transfer(UUID, TEXT, TEXT, NUMERIC, TEXT, TEXT, TEXT) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.request_crypto_withdrawal(UUID, TEXT, TEXT, UUID, NUMERIC, NUMERIC, TEXT, TEXT, BOOLEAN) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.review_withdrawal_request(UUID, TEXT) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.review_withdrawal_request(UUID, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.pay_invoice_atomic(UUID, UUID, TEXT) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.transfer_trading_bridge(UUID, UUID, NUMERIC, TEXT, TEXT) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.provision_sub_terminal_atomic(TEXT, TEXT, NUMERIC, NUMERIC, TEXT[]) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.update_terminal_status_admin(UUID, TEXT, TEXT) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.update_terminal_status_admin(UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.verify_ledger_invariant() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.register_deposit_address(UUID, TEXT, TEXT) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.update_sub_terminal_policy(UUID, TEXT, NUMERIC, NUMERIC, TEXT[]) FROM PUBLIC, anon;
@@ -482,11 +482,11 @@ REVOKE ALL ON FUNCTION public.create_invoice_atomic(UUID, TEXT, TEXT, NUMERIC, T
 GRANT EXECUTE ON FUNCTION public.bootstrap_user_terminal(TEXT, TEXT) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.execute_internal_transfer(UUID, TEXT, TEXT, NUMERIC, TEXT, TEXT, TEXT) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.request_crypto_withdrawal(UUID, TEXT, TEXT, UUID, NUMERIC, NUMERIC, TEXT, TEXT, BOOLEAN) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.review_withdrawal_request(UUID, TEXT) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.review_withdrawal_request(UUID, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.pay_invoice_atomic(UUID, UUID, TEXT) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.transfer_trading_bridge(UUID, UUID, NUMERIC, TEXT, TEXT) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.provision_sub_terminal_atomic(TEXT, TEXT, NUMERIC, NUMERIC, TEXT[]) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.update_terminal_status_admin(UUID, TEXT, TEXT) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.update_terminal_status_admin(UUID, TEXT, TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.verify_ledger_invariant() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.register_deposit_address(UUID, TEXT, TEXT) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.update_sub_terminal_policy(UUID, TEXT, NUMERIC, NUMERIC, TEXT[]) TO authenticated, service_role;

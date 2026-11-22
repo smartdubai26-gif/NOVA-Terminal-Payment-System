@@ -147,15 +147,43 @@ export const COUNTERPARTY_DIRECTORY: CounterpartyInfo[] = [
   },
 ];
 
-export function createUuid(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
+export function secureRandomInt(minInclusive: number, maxInclusive: number): number {
+  if (
+    typeof globalThis.crypto === 'undefined' ||
+    typeof globalThis.crypto.getRandomValues !== 'function'
+  ) {
+    throw new Error('Cryptographic randomness (crypto.getRandomValues) is required.');
   }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  const range = maxInclusive - minInclusive + 1;
+  if (!Number.isInteger(range) || range <= 0) {
+    throw new Error('Invalid integer range for secureRandomInt.');
+  }
+  const arr = new Uint32Array(1);
+  const maxValid = Math.floor(0x1_0000_0000 / range) * range;
+  let value = 0;
+  do {
+    globalThis.crypto.getRandomValues(arr);
+    value = arr[0];
+  } while (value >= maxValid);
+  return minInclusive + (value % range);
+}
+
+export function createUuid(): string {
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  if (
+    typeof globalThis.crypto === 'undefined' ||
+    typeof globalThis.crypto.getRandomValues !== 'function'
+  ) {
+    throw new Error('Cryptographic randomness (crypto.getRandomValues) is required.');
+  }
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 export function resolveTerminalCode(
@@ -1111,7 +1139,7 @@ export function resetLocalLedgerState(): NtpsLedgerState {
 }
 
 function makeReference(): string {
-  const num = Math.floor(1000 + Math.random() * 8999);
+  const num = secureRandomInt(1000, 9999);
   return `NTPS-261118-${num}`;
 }
 
@@ -1584,7 +1612,7 @@ export async function performWithdrawal(params: {
       p_fee: fee,
       p_memo: params.memo || `Custody withdrawal (${wl.label})`,
       p_idempotency_key: idempotencyKey,
-      p_auto_approve: Boolean(params.autoApprove),
+      p_auto_approve: false,
     });
 
     if (error) {
@@ -1711,7 +1739,7 @@ export async function performWithdrawal(params: {
     id: createUuid(),
     transaction_id: txId,
     whitelist_address_id: wlMatch?.id ?? createUuid(),
-    state: params.autoApprove ? 'approved' : 'review',
+    state: 'review',
     broadcast_at: null,
     created_at: nowIso,
   };
@@ -1743,9 +1771,33 @@ export async function provisionSubTerminal(params: {
   const master = state.terminals.find((t) => t.type === 'master');
   if (!master) throw new Error('Master terminal not found.');
 
+  const cleanLabel = params.label.trim();
+  if (!cleanLabel) {
+    throw new Error('Sub-terminal label is required.');
+  }
+  if (
+    !Number.isFinite(params.dailyLimitUsd) ||
+    params.dailyLimitUsd <= 0 ||
+    !Number.isFinite(params.perTxLimitUsd) ||
+    params.perTxLimitUsd <= 0
+  ) {
+    throw new Error('Sub-terminal daily and per-transaction limits must be strictly positive.');
+  }
+  if (params.perTxLimitUsd > params.dailyLimitUsd) {
+    throw new Error('Per-transaction limit cannot exceed daily limit.');
+  }
+  if (params.dailyLimitUsd > master.daily_limit_usd) {
+    throw new Error(
+      `Sub-terminal daily limit ($${params.dailyLimitUsd.toLocaleString()}) cannot exceed Master Terminal cap ($${master.daily_limit_usd.toLocaleString()}).`
+    );
+  }
+  if (!Array.isArray(params.allowedAssets) || params.allowedAssets.length === 0) {
+    throw new Error('At least one allowed asset is required.');
+  }
+
   const subCount = state.terminals.filter((t) => t.type === 'sub').length;
   const subCode = generateSubTerminalId(master.terminalId, subCount + 1);
-  const label = params.label.trim() || `Desk ${subCount + 1}`;
+  const label = cleanLabel;
 
   if (isLiveSupabaseMode(params.authMode) && supabase) {
     const { data: subId, error } = await supabase.rpc('provision_sub_terminal_atomic', {
@@ -1828,14 +1880,37 @@ export async function updateSubTerminalPolicy(params: {
   }
 
   const state = await loadLedgerState({ authMode: params.authMode });
+  const master = state.terminals.find((t) => t.type === 'master');
+  const existing = state.terminals.find((t) => t.id === params.terminalUuid);
+  if (!existing) throw new Error('Sub-terminal not found.');
+
+  const nextDaily = params.dailyLimitUsd ?? existing.daily_limit_usd;
+  const nextPerTx = params.perTxLimitUsd ?? existing.per_tx_limit_usd;
+  const nextAssets = params.allowedAssets ?? existing.allowed_assets;
+
+  if (!Number.isFinite(nextDaily) || nextDaily <= 0 || !Number.isFinite(nextPerTx) || nextPerTx <= 0) {
+    throw new Error('Limits must be strictly positive.');
+  }
+  if (nextPerTx > nextDaily) {
+    throw new Error('Per-transaction limit cannot exceed daily limit.');
+  }
+  if (master && existing.type === 'sub' && nextDaily > master.daily_limit_usd) {
+    throw new Error(
+      `Sub-terminal daily limit cannot exceed Master Terminal cap ($${master.daily_limit_usd.toLocaleString()}).`
+    );
+  }
+  if (nextAssets.length === 0) {
+    throw new Error('At least one allowed asset is required.');
+  }
+
   const nextTerminals = state.terminals.map((t) => {
     if (t.id !== params.terminalUuid) return t;
     return {
       ...t,
       status: params.status ?? t.status,
-      daily_limit_usd: params.dailyLimitUsd ?? t.daily_limit_usd,
-      per_tx_limit_usd: params.perTxLimitUsd ?? t.per_tx_limit_usd,
-      allowed_assets: params.allowedAssets ?? t.allowed_assets,
+      daily_limit_usd: nextDaily,
+      per_tx_limit_usd: nextPerTx,
+      allowed_assets: nextAssets,
     };
   });
 
@@ -1903,7 +1978,7 @@ export async function createInvoice(params: {
 
   const now = Date.now();
   const expMs = (params.expiryHours ?? 24) * 3600_000;
-  const invNumber = `INV-2026-${Math.floor(100000 + Math.random() * 899999)}`;
+  const invNumber = `INV-2026-${secureRandomInt(100000, 999999)}`;
   const sig = generateTxHash('0x').slice(0, 24);
   const signedUri = `ntps://pay?tid=${term.terminalId}&asset=${params.asset}&amount=${params.amount}&ref=${invNumber}&sig=${sig}`;
   const expiresAt = new Date(now + expMs).toISOString();
@@ -2426,7 +2501,25 @@ export async function reviewWithdrawalQueue(params: {
 
   const state = await loadLedgerState({ authMode: params.authMode });
   const targetTx = state.transactions.find((t) => t.id === params.transactionId);
+  const targetReq = state.withdrawalRequests.find((r) => r.transaction_id === params.transactionId);
   const nowIso = new Date().toISOString();
+
+  if (params.action === 'reject') {
+    if (
+      targetReq?.state === 'broadcast' ||
+      targetReq?.state === 'confirmed' ||
+      Boolean(targetReq?.broadcast_at) ||
+      Boolean(targetTx?.tx_hash) ||
+      targetTx?.status === 'completed'
+    ) {
+      throw new Error(
+        'Cannot automatically reject or reverse a withdrawal that has already broadcast or confirmed on-chain; manual reconciliation required.'
+      );
+    }
+    if (targetTx && state.journalEntries.some((je) => je.idempotency_key === `rev_${targetTx.id}`)) {
+      throw new Error('Withdrawal reversal already recorded.');
+    }
+  }
 
   let nextWallets = state.wallets;
   let nextJournals = state.journalEntries;

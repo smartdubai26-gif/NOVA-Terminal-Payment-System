@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ActiveView, AssetSymbol, ToastItem } from './types/ntps';
+import { createUuid } from './lib/ledgerEngine';
 import { useNtpsLedger } from './hooks/useNtpsLedger';
 import { useSupabaseAuth } from './hooks/useSupabaseAuth';
 import { DashboardView } from './components/DashboardView';
@@ -94,7 +95,7 @@ function NtpsWorkspace() {
 
   const addToast = useCallback(
     (title: string, description?: string, variant: ToastItem['variant'] = 'success') => {
-      const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const id = `toast-${Date.now()}-${createUuid().slice(0, 8)}`;
       setToasts((prev) => [...prev.slice(-3), { id, title, description, variant }]);
       window.setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -199,7 +200,7 @@ function NtpsWorkspace() {
               <div className="font-medium text-slate-200 truncate">
                 {auth.authMode === 'supabase'
                   ? 'Connected Supabase Session'
-                  : 'Local Preview Mode'}
+                  : 'Local Demo Mode (localStorage)'}
               </div>
               <div className="font-mono text-[11px] text-slate-400 truncate">
                 {auth.effectiveUserEmail}
@@ -288,7 +289,7 @@ function NtpsWorkspace() {
                   <div className="font-medium text-slate-200 truncate">
                     {auth.authMode === 'supabase'
                       ? 'Connected Supabase Session'
-                      : 'Local Preview Mode'}
+                      : 'Local Demo Mode (localStorage)'}
                   </div>
                   <div className="font-mono text-[11px] text-slate-400 truncate">
                     {auth.effectiveUserEmail}
@@ -350,7 +351,7 @@ function NtpsWorkspace() {
                   ? `Supabase Realtime subscribed${lastRealtimeSyncAt ? ` · Last event ${new Date(lastRealtimeSyncAt).toLocaleTimeString()}` : ''} (click to refresh)`
                   : realtimeStatus === 'disconnected'
                     ? 'Realtime disconnected/reconnecting (click to resync manually)'
-                    : 'Local Demo Mode — sandboxed local storage data (click to configure or sign in to Supabase)'
+                    : 'Local Demo Mode — sandboxed browser localStorage only (click to configure or sign in to Supabase)'
               }
               className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] font-mono transition-colors whitespace-nowrap ${
                 realtimeStatus === 'connected'
@@ -374,7 +375,7 @@ function NtpsWorkspace() {
                   ? 'Realtime: Live'
                   : realtimeStatus === 'disconnected'
                     ? 'Realtime: Reconnecting'
-                    : 'DEMO MODE — local data'}
+                    : 'DEMO MODE — localStorage'}
               </span>
             </button>
             {masterTerminal && (

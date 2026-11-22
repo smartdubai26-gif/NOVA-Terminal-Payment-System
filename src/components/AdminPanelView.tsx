@@ -546,8 +546,15 @@ export function AdminPanelView({
                   {flaggedWithdrawals.map((tx) => {
                     const wdReq = withdrawalRequestByTxId.get(tx.id);
                     const reqState = wdReq?.state ?? 'review';
-                    const canApprove = reqState === 'review';
-                    const canReject = reqState === 'review' || reqState === 'approved';
+                    const hasOnChainEvidence =
+                      Boolean(tx.tx_hash) ||
+                      tx.status === 'completed' ||
+                      Boolean(wdReq?.broadcast_at) ||
+                      reqState === 'broadcast' ||
+                      reqState === 'confirmed';
+                    const canApprove = reqState === 'review' && !hasOnChainEvidence;
+                    const canReject =
+                      (reqState === 'review' || reqState === 'approved') && !hasOnChainEvidence;
                     return (
                       <tr key={tx.id} className="hover:bg-white/[0.025]">
                         <td className="py-3 px-4 font-mono text-slate-200 whitespace-nowrap">{tx.reference}</td>
@@ -608,6 +615,12 @@ export function AdminPanelView({
                               <XCircle className="w-3.5 h-3.5" />
                               Reject
                             </button>
+                          )}
+                          {!canApprove && !canReject && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-mono text-amber-300">
+                              <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                              Manual reconciliation required
+                            </span>
                           )}
                         </td>
                       </tr>

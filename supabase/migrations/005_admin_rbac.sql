@@ -222,7 +222,25 @@ BEGIN
     WHERE id = v_req.id;
   ELSE
     IF v_req.state NOT IN ('review', 'approved') THEN
-      RAISE EXCEPTION 'Cannot reject withdrawal in state %', v_req.state;
+      RAISE EXCEPTION 'Cannot reject withdrawal in state %; manual reconciliation required', v_req.state
+        USING ERRCODE = '40001';
+    END IF;
+
+    IF v_tx.status = 'completed' OR v_tx.tx_hash IS NOT NULL THEN
+      RAISE EXCEPTION 'Withdrawal % already has on-chain tx_hash or completed status; manual reconciliation required', v_tx.reference
+        USING ERRCODE = '40001';
+    END IF;
+
+    IF v_req.broadcast_at IS NOT NULL OR v_req.tx_hash_candidate IS NOT NULL THEN
+      RAISE EXCEPTION 'Withdrawal % already entered worker broadcast pipeline; manual reconciliation required', v_tx.reference
+        USING ERRCODE = '40001';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1 FROM public.journal_entries WHERE idempotency_key = 'rev_' || v_tx.id::TEXT
+    ) THEN
+      RAISE EXCEPTION 'Withdrawal % reversal already recorded', v_tx.reference
+        USING ERRCODE = '40001';
     END IF;
 
     UPDATE public.withdrawal_requests

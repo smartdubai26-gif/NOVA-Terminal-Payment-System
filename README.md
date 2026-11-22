@@ -13,7 +13,7 @@ An institutional multi-asset settlement platform built on a **ledger-first doubl
 |  - Terminal Workspace & Sub-Terminals (Crockford Base32 NT-OMEGA-...)       |
 |  - Double-Entry Preview Engine (`src/lib/ledgerEngine.ts`)                  |
 |  - Real TOTP 2FA Modal (`otplib` + `qrcode`, server-verified in live mode)  |
-|  - `useSupabaseAuth` -> Live Session vs. Sandboxed `DEMO MODE — local data` |
+|  - `useSupabaseAuth` -> Live Session vs. Sandboxed `DEMO MODE — localStorage` |
 |  - `useRealtimeLedger` -> Debounced WebSocket sync (`Realtime: Live`)       |
 +--------------------------------------+--------------------------------------+
                                        |
@@ -77,9 +77,9 @@ An institutional multi-asset settlement platform built on a **ledger-first doubl
 1. **Connected Supabase Mode (`Realtime: Live`)**
    - Activated when `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are configured and an operator signs in via Supabase Auth.
    - All financial writes flow through `SECURITY DEFINER` PostgreSQL RPCs with strict RLS isolation, deferred zero-sum double-entry verification, server-enforced daily/per-tx limits, and server-side TOTP 2FA verification.
-2. **Local Demo Mode (`DEMO MODE — local data`)**
+2. **Local Demo Mode (`DEMO MODE — localStorage`)**
    - Activated automatically when Supabase environment variables are absent, or manually via the Session Modal override for demos and training.
-   - Displays an explicit **`DEMO MODE — local data`** badge in the workspace header, persists sandboxed state in `localStorage`, and uses a locally generated random session TOTP challenge rather than live credentials.
+   - Displays an explicit **`DEMO MODE — localStorage`** badge in the workspace header, persists sandboxed state strictly in browser `localStorage`, and uses a locally generated random session TOTP challenge rather than live credentials or on-chain execution.
 
 ---
 
@@ -114,6 +114,9 @@ Execute the base schema and all numbered migrations **in exact order** inside th
 4. `supabase/migrations/003_ledger_integrity_and_limits.sql` — Deferred zero-sum double-entry trigger (`SUM(amount) = 0`), append-only triggers on `journal_entries` & `ledger_postings`, non-negative wallet balance checks, `verify_ledger_invariant()`, server-side limit enforcement, and `public.asset_rates`.
 5. `supabase/migrations/004_worker_reliability_and_aml.sql` — Withdrawal retry/duplicate-payout columns, `worker_checkpoints` & persisted `last_polled_timestamp_ms` cursors, and `public.aml_blocked_addresses`.
 6. `supabase/migrations/005_admin_rbac.sql` — Admin role registry (`public.app_admins`), `is_ntps_admin()` / `get_my_admin_role()` helpers, admin read-only RLS policies, and RBAC-enforced `review_withdrawal_request` & `update_terminal_status_admin` RPCs.
+7. `supabase/migrations/006_stage0_security_hardening.sql` — Stage-0 hardening (`SYS-1`, `SYS-2`, `SYS-4`, `SYS-9`, `W-04`), enforcing four-eyes withdrawal queueing, master-locked sub-terminal cap validation, `service_role` + ownership checks on `credit_crypto_deposit`, double-credit reversal locks, and atomic worker broadcast claim + policy/24h limit enforcement (`claim_approved_withdrawal_for_broadcast`).
+8. `supabase/migrations/007_stage1_validation_hardening.sql` — Stage-1 validation & serialization hardening (`SYS-7`, `SYS-8`, `SYS-10`, `W-11`), enforcing Crockford Mod-37 terminal ID validation (`is_valid_ntps_terminal_id`), per-chain address validation (`is_valid_chain_address`), `aml_blocked_addresses` validation trigger, and advisory-locked `append_worker_audit_log` RPC.
+9. `supabase/migrations/008_stage2_defensive_hardening.sql` — Stage-2 worker lease hardening (`W-21`), adding atomic PgBouncer-safe `acquire_worker_lease` and `release_worker_lease` RPCs (`service_role` only) backed by `public.worker_checkpoints.metadata`.
 
 #### Admin Authorization & Live Asset Rates (Optional)
 - **Provision Admin Operators:** Grant an operator access by inserting their Supabase Auth `user_id` into `public.app_admins` (via SQL Editor or `service_role`):
@@ -122,8 +125,9 @@ Execute the base schema and all numbered migrations **in exact order** inside th
   VALUES ('<operator-auth-uid>', 'compliance', true);
   ```
   Roles: `ops`, `compliance`, `treasury` (read-only for freezes/approvals), and `super_admin`.
-- **Live Asset Rates:** Deploy the CoinGecko rate updater Edge Function:
+- **Live Asset Rates:** Configure `RATE_REFRESH_SECRET` in Supabase Edge Function secrets (mandatory bearer token checked with constant-time comparison) and deploy the CoinGecko rate updater Edge Function:
   ```bash
+  supabase secrets set RATE_REFRESH_SECRET="<strong-random-secret>"
   supabase functions deploy refresh-asset-rates
   ```
 
@@ -155,30 +159,43 @@ npm start
 | `VITE_SUPABASE_ANON_KEY` | Live Mode | Public Supabase anonymous/publishable key (RLS-gated). |
 | `APP_URL` | Optional | Public URL of the deployed frontend application. |
 
+### Edge Function Secrets (Server-Only)
+| Variable | Required | Description |
+| :--- | :--- | :--- |
+| `RATE_REFRESH_SECRET` | Yes (Live Rates) | Mandatory bearer secret for `supabase/functions/refresh-asset-rates` (`supabase secrets set RATE_REFRESH_SECRET="..."`). Never prefix with `VITE_`. |
+
 ### TRON Worker (`ntps-tron-worker/.env.example`)
 | Variable | Required | Description |
 | :--- | :--- | :--- |
 | `SUPABASE_URL` | Yes | Supabase project URL. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service role key (**server-side only** — never expose to Vite/frontend). |
-| `TRON_FULL_HOST` | Yes | TronGrid endpoint (`https://api.trongrid.io` or `https://nile.trongrid.io` for testnet). |
+| `TRON_FULL_HOST` | Yes | Permitted TronGrid endpoint (`https://api.trongrid.io`, `https://api.shasta.trongrid.io`, or `https://nile.trongrid.io`). |
+| `TRON_ALLOWED_HOSTS` | Optional | Comma-separated additional trusted HTTPS TRON node origins permitted beyond default TronGrid endpoints. |
 | `TRONGRID_API_KEY` | Recommended | TronGrid API key (`TRON-PRO-API-KEY` header). |
 | `USDT_CONTRACT_ADDRESS` | Yes | TRC-20 USDT contract (`TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` on mainnet). |
-| `HOT_WALLET_PRIVATE_KEY_ENCRYPTED` | Prod Yes | AES-256-GCM encrypted hot wallet envelope (`v1:<salt>:<iv>:<tag>:<ciphertext>`). |
-| `HOT_WALLET_DECRYPTION_KEY` | Prod Yes | Secret passphrase (min 16 chars; 32+ recommended) injected via secrets manager. |
-| `HOT_WALLET_PRIVATE_KEY` | Dev Only | Plaintext private key fallback (logs startup security warning; omit in prod). |
+| `HOT_WALLET_PRIVATE_KEY_ENCRYPTED` | Prod Yes | AES-256-GCM encrypted hot wallet envelope (`ntps:v2:aes256gcm:<salt>:<iv>:<tag>:<ciphertext>`, scrypt `N=131072`; legacy `ntps:v1` readable for migration). Generate via masked prompt or `--key-file` (`npm run encrypt-key`). |
+| `HOT_WALLET_DECRYPTION_KEY` | Prod Yes | Secret passphrase (min 32 chars required for `ntps:v2`) injected via secrets manager. |
+| `HOT_WALLET_PRIVATE_KEY` | Dev Only | Plaintext private key fallback; blocked in `NODE_ENV=production` unless `ALLOW_PLAINTEXT_KEY=true`. |
+| `ALLOW_PLAINTEXT_KEY` | Optional | Set `true` only as a temporary migration override for plaintext key fallback in production (default `false`). |
 | `POLL_INTERVAL_MS` | Optional | Worker loop interval in ms (default `15000`). |
 | `WITHDRAWAL_RETRY_BASE_MS` | Optional | Base delay in ms for 3-attempt exponential backoff (default `2000`). |
 | `POLL_FAILURE_ALERT_THRESHOLD` | Optional | Consecutive TronGrid poll failures before alert (default `3`). |
+| `STALE_BROADCAST_THRESHOLD_MS` | Optional | Timeout in ms before stranded `'broadcast'` withdrawals are reconciled automatically (default `600000`). |
+| `MIN_HOT_WALLET_TRX` | Optional | Minimum hot wallet native TRX reserve required to start outbound withdrawal broadcasts (default `50` TRX). |
+| `WORKER_LEASE_TTL_SECONDS` | Optional | Lease duration in seconds for `acquire_worker_lease` cycle lock (`20`–`300`, default `45`). |
+| `AUDIT_FAILURE_ALERT_THRESHOLD` | Optional | Consecutive worker audit write failures before critical alert (default `3`). |
+| `AUDIT_FALLBACK_FILE` | Optional | Append-only JSONL fallback path (`0o600`) for redacted audit entries if DB audit write fails. |
 | `ALERT_WEBHOOK_URL` | Optional | JSON webhook endpoint (Slack/Discord/PagerDuty) for worker alerts. |
-| `ALERT_EDGE_FUNCTION_URL` | Optional | Supabase Edge Function endpoint invoked with `SUPABASE_SERVICE_ROLE_KEY`. |
+| `ALERT_EDGE_FUNCTION_URL` | Optional | Same-origin Supabase Edge Function endpoint (`https://<ref>.supabase.co/...`); cross-origin URLs are blocked. |
+| `ALERT_EDGE_FUNCTION_TOKEN` | Recommended | Dedicated non-privileged bearer token for `ALERT_EDGE_FUNCTION_URL` (preferred over `SUPABASE_SERVICE_ROLE_KEY`). |
 | `AML_BLOCKED_ADDRESSES` | Optional | Comma-separated TRON addresses blocked in addition to `aml_blocked_addresses` DB table. |
 
 ---
 
 ## Production Deployment Steps
 
-1. **Database Hardening:** Apply `supabase/schema.sql` and migrations `001` through `004`. Verify `verify_ledger_invariant()` reports `ok = true` and `imbalancedCount = 0`.
-2. **Secrets Audit:** Confirm no `service_role`, `HOT_WALLET_*`, or TOTP keys exist in `VITE_*` variables or the compiled `dist/` bundle (`npm run build`).
-3. **Edge Functions:** Deploy `supabase/functions/refresh-asset-rates` and schedule periodic execution (e.g., via `pg_cron` or external scheduler) so `asset_rates` stays fresh.
-4. **Frontend Hosting:** Run `npm run lint && npm run build` and serve `dist/` behind TLS on a static CDN/reverse proxy.
-5. **Worker Daemon:** Build `ntps-tron-worker` (`npm --prefix ntps-tron-worker run build`) and run `node dist/index.js` under a process supervisor (`systemd`, Docker, or PM2) with secrets injected at runtime, `ALERT_WEBHOOK_URL` configured, and a funded TRX/USDT hot wallet.
+1. **Database Hardening:** Apply `supabase/schema.sql` and migrations `001` through `008`. Verify `verify_ledger_invariant()` reports `ok = true` and `imbalancedCount = 0`.
+2. **Secrets Audit:** Confirm no `service_role`, `HOT_WALLET_*`, `RATE_REFRESH_SECRET`, or TOTP keys exist in `VITE_*` variables or the compiled `dist/` bundle (`npm run build`).
+3. **Edge Functions:** Set `RATE_REFRESH_SECRET`, deploy `supabase/functions/refresh-asset-rates`, and schedule periodic authenticated execution (e.g., via `pg_cron` or external scheduler) so `asset_rates` stays fresh.
+4. **Frontend Hosting:** Run `npm run lint && npm run build` and serve `dist/` behind TLS (configured with `vercel.json` CSP, HSTS, `X-Frame-Options: DENY`, and `nosniff` security headers).
+5. **Worker Daemon (Single Replica):** Build `ntps-tron-worker` (`npm --prefix ntps-tron-worker run build`) and run **exactly one active replica** (`node dist/index.js`) under a process supervisor (`systemd`, Docker, or PM2) with secrets injected at runtime (never rely on `.env` files in `NODE_ENV=production`), `ALERT_WEBHOOK_URL` configured, and a funded TRX/USDT hot wallet. Migration `008` enforces an atomic DB lease guard (`acquire_worker_lease`) as defense-in-depth against accidental replica overlap.

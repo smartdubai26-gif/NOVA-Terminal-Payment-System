@@ -68,16 +68,20 @@ export function buildMasterTerminalIdFromSeed(seed7: string): string {
   return 'NT-OMEGA-7K9P-3M27';
 }
 
+function getCryptoRandomBytes(length: number): Uint8Array {
+  if (typeof globalThis.crypto === 'undefined' || typeof globalThis.crypto.getRandomValues !== 'function') {
+    throw new Error('Cryptographic randomness (crypto.getRandomValues) is required.');
+  }
+  const bytes = new Uint8Array(length);
+  globalThis.crypto.getRandomValues(bytes);
+  return bytes;
+}
+
 /**
  * Generates a cryptographically random, Crockford Mod-37 valid Master Terminal ID.
  */
 export function generateMasterTerminalId(): string {
-  const bytes = new Uint8Array(7);
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    crypto.getRandomValues(bytes);
-  } else {
-    for (let i = 0; i < 7; i++) bytes[i] = Math.floor(Math.random() * 256);
-  }
+  const bytes = getCryptoRandomBytes(7);
   let seed7 = '';
   for (let i = 0; i < 7; i++) {
     seed7 += CROCKFORD_ALPHABET[bytes[i] % 32];
@@ -321,13 +325,13 @@ export function deriveDepositAddress(
 }
 
 /**
- * Generates a realistic 64-char hex transaction hash or internal NTPS settlement hash.
+ * Generates a cryptographically random 64-char hex transaction hash or internal NTPS settlement hash.
  */
 export function generateTxHash(prefix = '0x'): string {
-  const hex = '0123456789abcdef';
+  const bytes = getCryptoRandomBytes(32);
   let out = prefix;
-  for (let i = 0; i < 64; i++) {
-    out += hex[Math.floor(Math.random() * 16)];
+  for (let i = 0; i < bytes.length; i++) {
+    out += bytes[i].toString(16).padStart(2, '0');
   }
   return out;
 }
