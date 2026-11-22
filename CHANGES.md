@@ -432,3 +432,19 @@
    - Removed unused `express` and `@types/express` from root `package.json` and aligned root and worker package version ranges with installed dependencies.
    - Replaced all frontend `Math.random()` ID/reference/hash/OTP calls with `crypto.getRandomValues` / `crypto.randomUUID`.
    - Reinforced explicit `localStorage` messaging for Local Demo Mode (`DEMO MODE — localStorage`) and documented `RATE_REFRESH_SECRET` in `.env.example` and `README.md`.
+
+---
+
+## Destination Trust, Fail-Closed AML & CI Merge (`009_worker_destination_trust.sql`)
+
+### Summary of Changes
+
+1. **`W-01` Destination Trust & TOCTOU Protection (`supabase/migrations/009_worker_destination_trust.sql`, `ntps-tron-worker/src/guards.ts`, `index.ts`, `workerHelpers.ts`):**
+   - Resolved the `007_` migration collision (`NEW-1`) by placing destination-trust hardening in `009_worker_destination_trust.sql` cleanly after `006`–`008` without overwriting RBAC (`005`), `SYS-9` double-credit reversal locks (`006`), `W-04` policy claims (`006`), or `SYS-8` chain address validation (`007`).
+   - Enforced `verified = FALSE` for non-admin client whitelist additions, added `verify_whitelist_address_admin`, blocked destination `UPDATE`/`DELETE` while pending withdrawals exist (`trg_guard_whitelist_address_mutation`), captured `withdrawal_requests.destination_snapshot` at approval time, and enforced `assessDestinationTrust` + `toTokenUnits` precision checks in `ntps-tron-worker` strictly prior to claim/broadcast.
+2. **`W-03` Fail-Closed AML Screening & Staging Harness (`ntps-tron-worker/src/aml.ts`, `guards.ts`, `index.ts`, `scripts/w03-staging-test.js`, `.env.example`):**
+   - Updated `screenWithdrawalDestination()` to fail closed on any `aml_blocked_addresses` DB error/outage (`classifyAmlDbError`), returning withdrawals to `'review'` with `AML_UNAVAILABLE:` (`WITHDRAWAL_AML_UNAVAILABLE`) unless `errorClass === 'table_missing'` AND `AML_ALLOW_DEGRADED_MODE=true` explicitly.
+   - Added `guards.test.ts`, `aml.test.ts`, and `npm run test:w03` (`scripts/w03-staging-test.js`).
+3. **Root `ERESOLVE` & CI Fixes (`package.json`, `ntps-tron-worker/package.json`, `.github/workflows/worker-ci.yml`):**
+   - Aligned root `devDependencies.esbuild` (`^0.28.0`) with `vite@^8.3.8` peerOptional range (`NEW-2`), resolving clean `npm install` without `--legacy-peer-deps`.
+   - Added `test:w03` in `ntps-tron-worker/package.json` and created `.github/workflows/worker-ci.yml` running Node `22.x` worker tests and frontend typecheck/build (`NEW-3`).

@@ -6,6 +6,7 @@ import { resolveHotWalletPrivateKey } from './cryptoKey';
 import { recordWorkerAuditLog, sanitizeErrorMessage } from './auditLog';
 import { sendWorkerAlert } from './alerts';
 import { screenWithdrawalDestination } from './aml';
+import { assessDestinationTrust, extractTxIdFromError } from './guards';
 import {
   buildPolicyBlockedAlert,
   computePrior24hOutflowUsd,
@@ -94,10 +95,12 @@ interface DepositAddressRow {
   wallets: { terminal_id?: string } | { terminal_id?: string }[] | null;
 }
 
-// Fallback cursor map used only if migration 004 (`last_polled_timestamp_ms`) is not yet applied
+// Fallback flags used only if corresponding migrations have not yet been applied
 const memoryCursorFallback = new Map<string, number>();
 let depositSchemaSupportsCursor = true;
 let withdrawalSchemaSupportsRetryCols = true;
+let withdrawalSchemaSupportsSnapshot = true;
+let withdrawalSchemaSupportsVerified = true;
 let workerLeaseRpcSupported = true;
 let leaseRpcMissingWarned = false;
 let consecutivePollFailures = 0;
@@ -566,65 +569,94 @@ async function reconcileStaleBroadcastWithdrawals(): Promise<void> {
   }
 }
 
-/**
- * Execute admin-approved outbound withdrawal requests on the TRON network
- * with FIFO ordering, unsupported-network handoff, duplicate-payout guards,
- * AML screening, and 3-attempt exponential backoff.
- */
-async function processApprovedWithdrawals(): Promise<void> {
-  try {
-    const selectCols = withdrawalSchemaSupportsRetryCols
-      ? `
-          id,
-          transaction_id,
-          state,
-          created_at,
-          attempt_count,
-          tx_hash_candidate,
-          whitelist_addresses(address, network),
-          transactions(terminal_id, asset, amount, fee, status, tx_hash)
-        `
-      : `
-          id,
-          transaction_id,
-          state,
-          created_at,
-          whitelist_addresses(address, network),
-          transactions(terminal_id, asset, amount, fee, status, tx_hash)
-        `;
+interface ApprovedWithdrawalRow {
+  id: string;
+  transaction_id: string;
+  state: string;
+  created_at?: string;
+  attempt_count?: number;
+  tx_hash_candidate?: string | null;
+  destination_snapshot?: string | null;
+  whitelist_addresses: WithdrawalQueueDestInfo | WithdrawalQueueDestInfo[] | null;
+  transactions: WithdrawalQueueTxInfo | WithdrawalQueueTxInfo[] | null;
+}
 
+function buildWithdrawalSelectCols(): string {
+  const reqCols = ['id', 'transaction_id', 'state', 'created_at'];
+  if (withdrawalSchemaSupportsRetryCols) {
+    reqCols.push('attempt_count', 'tx_hash_candidate');
+  }
+  if (withdrawalSchemaSupportsSnapshot) {
+    reqCols.push('destination_snapshot');
+  }
+
+  const wlCols = withdrawalSchemaSupportsVerified
+    ? 'address, network, verified'
+    : 'address, network';
+
+  return `${reqCols.join(', ')}, whitelist_addresses(${wlCols}), transactions(terminal_id, asset, amount, fee, status, tx_hash)`;
+}
+
+async function fetchApprovedWithdrawals(): Promise<ApprovedWithdrawalRow[]> {
+  for (let guard = 0; guard < 4; guard += 1) {
     const queryRes = await supabase
       .from('withdrawal_requests')
-      .select(selectCols)
+      .select(buildWithdrawalSelectCols())
       .eq('state', 'approved')
       .order('created_at', { ascending: true })
       .limit(25);
 
-    if (queryRes.error && withdrawalSchemaSupportsRetryCols) {
-      if (
-        queryRes.error.message.includes('attempt_count') ||
-        queryRes.error.message.includes('tx_hash_candidate')
-      ) {
-        withdrawalSchemaSupportsRetryCols = false;
-        console.warn(
-          '[WITHDRAWAL] Retry guard columns not found; apply migration 004 for persistent attempt tracking.'
-        );
-        return processApprovedWithdrawals();
-      }
-      throw new Error(`Failed to fetch approved withdrawals: ${queryRes.error.message}`);
+    if (!queryRes.error) {
+      return (queryRes.data ?? []) as unknown as ApprovedWithdrawalRow[];
     }
 
-    const requests = (queryRes.data ?? []) as unknown as Array<{
-      id: string;
-      transaction_id: string;
-      state: string;
-      created_at?: string;
-      attempt_count?: number;
-      tx_hash_candidate?: string | null;
-      whitelist_addresses: WithdrawalQueueDestInfo | WithdrawalQueueDestInfo[] | null;
-      transactions: WithdrawalQueueTxInfo | WithdrawalQueueTxInfo[] | null;
-    }>;
+    const msg = queryRes.error.message;
+    let flipped = false;
 
+    if (msg.includes('destination_snapshot') && withdrawalSchemaSupportsSnapshot) {
+      withdrawalSchemaSupportsSnapshot = false;
+      flipped = true;
+      console.warn(
+        '[WITHDRAWAL] destination_snapshot column missing; apply migration 009 for TOCTOU protection.'
+      );
+    }
+
+    if (
+      (msg.includes('attempt_count') || msg.includes('tx_hash_candidate')) &&
+      withdrawalSchemaSupportsRetryCols
+    ) {
+      withdrawalSchemaSupportsRetryCols = false;
+      flipped = true;
+      console.warn(
+        '[WITHDRAWAL] Retry guard columns not found; apply migration 004 for persistent attempt tracking.'
+      );
+    }
+
+    if (msg.includes('verified') && withdrawalSchemaSupportsVerified) {
+      withdrawalSchemaSupportsVerified = false;
+      flipped = true;
+      console.warn(
+        '[WITHDRAWAL] whitelist_addresses.verified column missing; destination trust gate will fail closed.'
+      );
+    }
+
+    if (!flipped) {
+      throw new Error(`Failed to fetch approved withdrawals: ${msg}`);
+    }
+  }
+
+  throw new Error('Failed to fetch approved withdrawals: schema capability detection exhausted.');
+}
+
+/**
+ * Execute admin-approved outbound withdrawal requests on the TRON network
+ * with FIFO ordering, unsupported-network handoff, destination trust gating (W-01),
+ * duplicate-payout guards, terminal policy checks (W-04), fail-closed AML screening (W-03),
+ * and 3-attempt exponential backoff.
+ */
+async function processApprovedWithdrawals(): Promise<void> {
+  try {
+    const requests = await fetchApprovedWithdrawals();
     if (requests.length === 0) return;
 
     // W-20: Verify hot wallet TRX fee reserve before initiating outbound withdrawal broadcasts
@@ -869,6 +901,49 @@ async function processApprovedWithdrawals(): Promise<void> {
         continue;
       }
 
+      // 1b. W-01 DESTINATION TRUST & TOCTOU GATE (runs strictly before policy/AML/claim)
+      const trust = assessDestinationTrust(destData, req.destination_snapshot, (addr) =>
+        tronWeb.isAddress(addr)
+      );
+      if (!trust.trusted) {
+        const trustReason = trust.reason ?? 'Destination failed whitelist trust checks.';
+        console.error(`[DESTINATION UNTRUSTED] Request ${req.id}: ${trustReason}`);
+
+        const untrustedPatch: Record<string, unknown> = { state: 'review' };
+        if (withdrawalSchemaSupportsRetryCols) {
+          untrustedPatch.last_error = `DESTINATION_UNTRUSTED: ${trustReason}`.slice(0, 500);
+          untrustedPatch.last_attempt_at = new Date().toISOString();
+        }
+        await supabase
+          .from('withdrawal_requests')
+          .update(untrustedPatch)
+          .eq('id', req.id)
+          .eq('state', 'approved');
+
+        await recordWorkerAuditLog(supabase, {
+          eventType: 'WITHDRAWAL_DESTINATION_UNTRUSTED',
+          terminalId: txData.terminal_id,
+          severity: 'critical',
+          details: `Blocked payout for request ${req.id} (tx ${req.transaction_id}, ${netAmount} USDT -> ${destData.address}): ${trustReason}.`,
+        });
+
+        await sendWorkerAlert({
+          severity: 'critical',
+          eventType: 'WITHDRAWAL_DESTINATION_UNTRUSTED',
+          title: 'Withdrawal Blocked: Untrusted Destination',
+          message: `Request ${req.id} (${netAmount} USDT -> ${destData.address}) blocked: ${trustReason}`,
+          metadata: {
+            requestId: req.id,
+            transactionId: req.transaction_id,
+            terminalId: txData.terminal_id,
+            address: destData.address,
+            amountUsdt: netAmount,
+            verifiedFlag: String(destData.verified),
+          },
+        });
+        continue;
+      }
+
       // 2. PRE-BROADCAST TERMINAL STATUS & POLICY/LIMIT GUARD (W-04)
       const { data: terminalRow, error: terminalErr } = await supabase
         .from('terminals')
@@ -936,6 +1011,47 @@ async function processApprovedWithdrawals(): Promise<void> {
 
       if (!amlResult.allowed) {
         const blockReason = amlResult.reason ?? 'Destination flagged by AML screening.';
+        const isUnavailable = amlResult.degraded === true;
+
+        if (isUnavailable) {
+          console.error(`[AML UNAVAILABLE] Request ${req.id} held (not blocked): ${blockReason}`);
+
+          const unavailablePatch: Record<string, unknown> = { state: 'review' };
+          if (withdrawalSchemaSupportsRetryCols) {
+            unavailablePatch.last_error = `AML_UNAVAILABLE: ${blockReason}`.slice(0, 500);
+            unavailablePatch.last_attempt_at = new Date().toISOString();
+          }
+
+          await supabase
+            .from('withdrawal_requests')
+            .update(unavailablePatch)
+            .eq('id', req.id)
+            .eq('state', 'approved');
+
+          await recordWorkerAuditLog(supabase, {
+            eventType: 'WITHDRAWAL_AML_UNAVAILABLE',
+            terminalId: txData.terminal_id,
+            severity: 'critical',
+            details: `Held payout for request ${req.id} (tx ${req.transaction_id}, ${netAmount} USDT -> ${destData.address}) because AML screening could not run: ${blockReason} [source=${amlResult.source ?? 'aml'}]. No funds were broadcast.`,
+          });
+
+          await sendWorkerAlert({
+            severity: 'critical',
+            eventType: 'WITHDRAWAL_AML_UNAVAILABLE',
+            title: 'Withdrawal Held: AML Screening Unavailable',
+            message: `Request ${req.id} (${netAmount} USDT -> ${destData.address}) was NOT broadcast. ${blockReason}`,
+            metadata: {
+              requestId: req.id,
+              transactionId: req.transaction_id,
+              terminalId: txData.terminal_id,
+              address: destData.address,
+              amountUsdt: netAmount,
+              amlSource: amlResult.source ?? 'aml',
+            },
+          });
+          continue;
+        }
+
         console.error(`[AML BLOCKED] Request ${req.id}: ${blockReason}`);
 
         const reviewPatch: Record<string, unknown> = { state: 'review' };
@@ -1075,6 +1191,9 @@ async function processApprovedWithdrawals(): Promise<void> {
           succeeded = true;
           break;
         } catch (sendErr: unknown) {
+          if (!obtainedTxHash) {
+            obtainedTxHash = extractTxIdFromError(sendErr);
+          }
           finalErrorMsg = sanitizeErrorMessage(sendErr, hotWalletResolution.privateKey);
           console.error(
             `[WITHDRAWAL ATTEMPT ${attempt}/${MAX_BROADCAST_ATTEMPTS} FAILED] Request ${req.id}:`,

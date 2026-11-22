@@ -1,0 +1,57 @@
+name: NTPS Worker & Build CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  worker-ci:
+    name: TRON Worker Tests (Node 22.x)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ntps-tron-worker
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+          cache-dependency-path: ntps-tron-worker/package-lock.json
+
+      - name: Install worker dependencies
+        run: npm ci
+
+      - name: Build & run unit/security tests
+        run: npm test
+
+      - name: Run W-03 AML fail-closed staging suite
+        run: npm run test:w03 --if-present
+
+  frontend-ci:
+    name: Frontend Typecheck & Build (Node 22.x)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Production Vite build
+        run: npm run build

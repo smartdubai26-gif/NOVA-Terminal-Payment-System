@@ -4,7 +4,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test dist/stage0.test.js dist/stage1.test.js dist/stage2.test.js",
+    "test": "npm run build && node --test dist/stage0.test.js dist/stage1.test.js dist/stage2.test.js && node dist/guards.test.js && node dist/aml.test.js",
+    "test:w03": "npm run build && node scripts/w03-staging-test.js",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "encrypt-key": "ts-node src/encryptKey.ts"

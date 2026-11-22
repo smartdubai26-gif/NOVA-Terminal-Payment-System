@@ -117,6 +117,7 @@ Execute the base schema and all numbered migrations **in exact order** inside th
 7. `supabase/migrations/006_stage0_security_hardening.sql` — Stage-0 hardening (`SYS-1`, `SYS-2`, `SYS-4`, `SYS-9`, `W-04`), enforcing four-eyes withdrawal queueing, master-locked sub-terminal cap validation, `service_role` + ownership checks on `credit_crypto_deposit`, double-credit reversal locks, and atomic worker broadcast claim + policy/24h limit enforcement (`claim_approved_withdrawal_for_broadcast`).
 8. `supabase/migrations/007_stage1_validation_hardening.sql` — Stage-1 validation & serialization hardening (`SYS-7`, `SYS-8`, `SYS-10`, `W-11`), enforcing Crockford Mod-37 terminal ID validation (`is_valid_ntps_terminal_id`), per-chain address validation (`is_valid_chain_address`), `aml_blocked_addresses` validation trigger, and advisory-locked `append_worker_audit_log` RPC.
 9. `supabase/migrations/008_stage2_defensive_hardening.sql` — Stage-2 worker lease hardening (`W-21`), adding atomic PgBouncer-safe `acquire_worker_lease` and `release_worker_lease` RPCs (`service_role` only) backed by `public.worker_checkpoints.metadata`.
+10. `supabase/migrations/009_worker_destination_trust.sql` — Worker destination trust & TOCTOU protection (`W-01`), defaulting `whitelist_addresses.verified` to `false` on client inserts, adding `verify_whitelist_address_admin`, locking active whitelist destinations against mutation, capturing `withdrawal_requests.destination_snapshot` at approval time, and re-enforcing verification inside `claim_approved_withdrawal_for_broadcast`.
 
 #### Admin Authorization & Live Asset Rates (Optional)
 - **Provision Admin Operators:** Grant an operator access by inserting their Supabase Auth `user_id` into `public.app_admins` (via SQL Editor or `service_role`):
@@ -140,6 +141,10 @@ cp .env.example .env
 
 # Encrypt your TRON hot wallet private key (AES-256-GCM envelope)
 npm run encrypt-key
+
+# Run unit/security tests & W-03 fail-closed AML staging harness
+npm test
+npm run test:w03
 
 # Build and run the worker
 npm run build
@@ -189,12 +194,13 @@ npm start
 | `ALERT_EDGE_FUNCTION_URL` | Optional | Same-origin Supabase Edge Function endpoint (`https://<ref>.supabase.co/...`); cross-origin URLs are blocked. |
 | `ALERT_EDGE_FUNCTION_TOKEN` | Recommended | Dedicated non-privileged bearer token for `ALERT_EDGE_FUNCTION_URL` (preferred over `SUPABASE_SERVICE_ROLE_KEY`). |
 | `AML_BLOCKED_ADDRESSES` | Optional | Comma-separated TRON addresses blocked in addition to `aml_blocked_addresses` DB table. |
+| `AML_ALLOW_DEGRADED_MODE` | Optional | Defaults `false` (fail-closed on AML DB errors). Set `true` only temporarily if `aml_blocked_addresses` (`004`) is missing; never enable in production with real funds. |
 
 ---
 
 ## Production Deployment Steps
 
-1. **Database Hardening:** Apply `supabase/schema.sql` and migrations `001` through `008`. Verify `verify_ledger_invariant()` reports `ok = true` and `imbalancedCount = 0`.
+1. **Database Hardening:** Apply `supabase/schema.sql` and migrations `001` through `009`. Verify `verify_ledger_invariant()` reports `ok = true` and `imbalancedCount = 0`.
 2. **Secrets Audit:** Confirm no `service_role`, `HOT_WALLET_*`, `RATE_REFRESH_SECRET`, or TOTP keys exist in `VITE_*` variables or the compiled `dist/` bundle (`npm run build`).
 3. **Edge Functions:** Set `RATE_REFRESH_SECRET`, deploy `supabase/functions/refresh-asset-rates`, and schedule periodic authenticated execution (e.g., via `pg_cron` or external scheduler) so `asset_rates` stays fresh.
 4. **Frontend Hosting:** Run `npm run lint && npm run build` and serve `dist/` behind TLS (configured with `vercel.json` CSP, HSTS, `X-Frame-Options: DENY`, and `nosniff` security headers).

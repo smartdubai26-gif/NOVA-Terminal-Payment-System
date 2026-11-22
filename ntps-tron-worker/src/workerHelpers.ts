@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { toTokenUnits } from './guards';
 
 export interface WithdrawalQueueTxInfo {
   terminal_id: string;
@@ -12,6 +13,7 @@ export interface WithdrawalQueueTxInfo {
 export interface WithdrawalQueueDestInfo {
   address: string;
   network: string;
+  verified?: boolean | null;
 }
 
 export type WithdrawalClassification =
@@ -66,7 +68,7 @@ export function classifyApprovedWithdrawal(
   }
 
   const netAmount = Number(txData.amount);
-  const amountInUnits = Math.floor(netAmount * 1_000_000);
+  const amountInUnits = toTokenUnits(netAmount);
   if (!Number.isFinite(netAmount) || amountInUnits <= 0) {
     return {
       kind: 'requeue_review',
