@@ -221,7 +221,7 @@ export interface KycSubmissionRecord {
   user_id: string;
   account_type: KycAccountType;
   full_legal_name: string;
-  date_of_birth: string;
+  date_of_birth: string | null;
   nationality: string;
   country_of_residence: string;
   id_type: KycIdType;
@@ -244,7 +244,7 @@ export interface KycSubmissionRecord {
 export interface KycSubmissionInput {
   account_type: KycAccountType;
   full_legal_name: string;
-  date_of_birth: string;
+  date_of_birth?: string | null;
   nationality: string;
   country_of_residence: string;
   id_type: KycIdType;

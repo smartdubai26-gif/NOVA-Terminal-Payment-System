@@ -474,3 +474,20 @@
    - Verify unverified users are blocked from external withdrawals and Sub-Terminal provisioning with a direct CTA to **KYC / KYB Verification**.
    - Complete the 4-step KYC/KYB wizard with valid PDF/JPG/PNG uploads (`<= 10 MB`) and confirm status transitions to `pending_review`.
    - Open **Admin & Compliance -> KYC Queue**, inspect uploaded documents via temporary signed URL preview, test rejection (confirm mandatory reason enforcement + applicant resubmission banner), and approve submission to unlock treasury provisioning, sub-terminals, and withdrawals.
+
+---
+
+## KYC / KYB Security Hardening (`011_harden_kyc_verification.sql`)
+
+### Summary of Changes
+
+1. **`[KYC-1]` Approved Identity Uniqueness (`supabase/migrations/011_harden_kyc_verification.sql`, `src/lib/ledgerEngine.ts`):**
+   - Added partial unique index `idx_kyc_submissions_approved_id_unique` on `(upper(trim(id_number)), lower(trim(id_type))) WHERE status = 'approved'` and enforced matching conflict validation inside `review_kyc_submission` and Local Demo Mode `reviewKycSubmission`.
+2. **`[KYC-2]` Compliance Evidence Lock on Storage (`storage.objects`):**
+   - Hardened `kyc_docs_owner_delete` and `kyc_docs_owner_update` policies on `kyc-documents` so owners cannot delete or overwrite uploaded verification documents while their submission is `pending_review` or `approved`.
+3. **`[KYC-3]` Corporate Nullable DOB & Individual Minimum Age `>= 18` (`011_harden_kyc_verification.sql`, `src/types/ntps.ts`, `src/lib/ledgerEngine.ts`, `KycVerificationView.tsx`, `AdminPanelView.tsx`):**
+   - Dropped `NOT NULL` on `kyc_submissions.date_of_birth` for corporate KYB accounts, added and validated `chk_kyc_dob_and_minimum_age` requiring `date_of_birth <= (CURRENT_DATE - INTERVAL '18 years')::date` for individual KYC submissions, and added `validateKycDateOfBirth` parity on frontend/local-demo flows.
+4. **`[KYC-4]` Role-Verified `SECURITY INVOKER` Guard Replacing GUC Bypass (`enforce_kyc_immutability_and_guard`, `review_kyc_submission`):**
+   - Removed `ntps.kyc_rpc_bypass` GUC trust and unified the write guard into a `SECURITY INVOKER` trigger (`trg_enforce_kyc_immutability_and_guard`) verifying `current_user IN ('postgres', 'supabase_admin', 'service_role')`, preserving all ownership, immutability, path-prefix, and anti-tamper protections.
+5. **`[KYC-5]` Restricted KYC Lookup RPC (`is_user_kyc_approved`, `is_my_kyc_approved`):**
+   - Revoked `EXECUTE` on `public.is_user_kyc_approved(UUID)` from `PUBLIC`, `anon`, and `authenticated` (retaining `service_role` and internal `SECURITY DEFINER` RPC usage) and added `public.is_my_kyc_approved()` for safe self-status checks.

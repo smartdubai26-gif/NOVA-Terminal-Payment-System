@@ -24,6 +24,7 @@ import type {
 } from '../types/ntps';
 import {
   uploadKycDocument,
+  validateKycDateOfBirth,
   validateKycDocumentFile,
   type KycDocumentSlot,
   type LedgerRuntimeMode,
@@ -131,7 +132,7 @@ export function KycVerificationView({
     }
     setAccountType(submission.account_type);
     setFullLegalName(submission.full_legal_name);
-    setDateOfBirth(submission.date_of_birth);
+    setDateOfBirth(submission.date_of_birth ?? '');
     setNationality(submission.nationality);
     setCountryOfResidence(submission.country_of_residence);
     setIdType(submission.id_type);
@@ -202,10 +203,10 @@ export function KycVerificationView({
           ? 'Registered legal entity name is required.'
           : 'Full legal name is required.';
       }
-      if (!dateOfBirth.trim()) {
-        return accountType === 'corporate'
-          ? 'Date of incorporation is required.'
-          : 'Date of birth is required.';
+      try {
+        validateKycDateOfBirth(accountType, dateOfBirth);
+      } catch (err) {
+        return err instanceof Error ? err.message : 'Invalid date provided.';
       }
       if (!nationality.trim() || !countryOfResidence.trim()) {
         return 'Nationality / jurisdiction and country of residence are required.';
@@ -273,7 +274,7 @@ export function KycVerificationView({
       await onSubmitKyc({
         account_type: accountType,
         full_legal_name: fullLegalName.trim(),
-        date_of_birth: dateOfBirth.trim(),
+        date_of_birth: dateOfBirth.trim() || null,
         nationality: nationality.trim(),
         country_of_residence: countryOfResidence.trim(),
         id_type: idType,
@@ -428,7 +429,9 @@ export function KycVerificationView({
               <span className="text-slate-400">
                 {submission.account_type === 'corporate' ? 'Incorporation Date' : 'Date of Birth'}
               </span>
-              <div className="font-mono tabular-nums text-slate-100">{submission.date_of_birth}</div>
+              <div className="font-mono tabular-nums text-slate-100">
+                {submission.date_of_birth || 'Not provided'}
+              </div>
             </div>
             <div className="space-y-1">
               <span className="text-slate-400">Jurisdiction / Residence</span>
@@ -594,7 +597,9 @@ export function KycVerificationView({
                   </div>
                   <div className="space-y-1.5">
                     <label htmlFor="kyc-dob" className="block text-xs font-medium text-slate-300">
-                      {accountType === 'corporate' ? 'Date of Incorporation' : 'Date of Birth'}
+                      {accountType === 'corporate'
+                        ? 'Date of Incorporation (Optional)'
+                        : 'Date of Birth (18+ required)'}
                     </label>
                     <input
                       id="kyc-dob"
@@ -808,7 +813,9 @@ export function KycVerificationView({
                     <span className="text-slate-400">
                       {accountType === 'corporate' ? 'Incorporation Date' : 'Date of Birth'}
                     </span>
-                    <span className="font-mono tabular-nums text-slate-100">{dateOfBirth}</span>
+                    <span className="font-mono tabular-nums text-slate-100">
+                      {dateOfBirth.trim() || 'Not provided'}
+                    </span>
                   </div>
                   <div className="px-4 py-3 flex items-center justify-between">
                     <span className="text-slate-400">Jurisdiction / Residence</span>

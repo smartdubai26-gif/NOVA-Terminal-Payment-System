@@ -921,7 +921,7 @@ export function AdminPanelView({
                     <div className="bg-[#05070A] border border-white/[0.06] rounded-lg p-3">
                       <div className="text-slate-400">Date of Birth / Incorporation</div>
                       <div className="font-mono text-slate-100 mt-1">
-                        {selectedKycSubmission.date_of_birth}
+                        {selectedKycSubmission.date_of_birth || 'Not provided (Corporate KYB)'}
                       </div>
                     </div>
                     <div className="bg-[#05070A] border border-white/[0.06] rounded-lg p-3">

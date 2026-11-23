@@ -907,7 +907,7 @@ function mapKycSubmissionRow(row: Record<string, unknown>): KycSubmissionRecord 
     user_id: String(row.user_id),
     account_type: accountType,
     full_legal_name: String(row.full_legal_name ?? ''),
-    date_of_birth: String(row.date_of_birth ?? ''),
+    date_of_birth: row.date_of_birth ? String(row.date_of_birth) : null,
     nationality: String(row.nationality ?? ''),
     country_of_residence: String(row.country_of_residence ?? ''),
     id_type: idType,
@@ -2946,6 +2946,56 @@ export async function uploadKycDocument(params: {
   return storagePath;
 }
 
+export function validateKycDateOfBirth(
+  accountType: KycAccountType,
+  dateOfBirth?: string | null
+): string | null {
+  const cleanDob = (dateOfBirth ?? '').trim();
+  if (!cleanDob) {
+    if (accountType === 'corporate') {
+      return null;
+    }
+    throw new Error('Date of birth is required for individual KYC submissions.');
+  }
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(cleanDob);
+  if (!match) {
+    throw new Error('Enter a valid YYYY-MM-DD date.');
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    throw new Error('Invalid calendar date provided.');
+  }
+
+  const now = new Date();
+  const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  if (parsed > todayUtc) {
+    throw new Error(
+      accountType === 'corporate'
+        ? 'Incorporation date cannot be in the future.'
+        : 'Date of birth cannot be in the future.'
+    );
+  }
+
+  if (accountType !== 'corporate') {
+    const minAdultCutoff = new Date(
+      Date.UTC(now.getUTCFullYear() - 18, now.getUTCMonth(), now.getUTCDate())
+    );
+    if (parsed > minAdultCutoff) {
+      throw new Error('Applicant must be at least 18 years old.');
+    }
+  }
+
+  return cleanDob;
+}
+
 export async function submitKycSubmission(params: {
   input: KycSubmissionInput;
   userId?: string;
@@ -2955,9 +3005,7 @@ export async function submitKycSubmission(params: {
   if (input.full_legal_name.trim().length < 2) {
     throw new Error('Full legal name or registered entity name is required.');
   }
-  if (!input.date_of_birth.trim()) {
-    throw new Error('Date of birth / incorporation date is required.');
-  }
+  const normalizedDob = validateKycDateOfBirth(input.account_type, input.date_of_birth);
   if (!input.nationality.trim() || !input.country_of_residence.trim()) {
     throw new Error('Nationality and country of residence are required.');
   }
@@ -2988,7 +3036,7 @@ export async function submitKycSubmission(params: {
       user_id: liveUid,
       account_type: input.account_type,
       full_legal_name: input.full_legal_name.trim(),
-      date_of_birth: input.date_of_birth.trim(),
+      date_of_birth: normalizedDob,
       nationality: input.nationality.trim(),
       country_of_residence: input.country_of_residence.trim(),
       id_type: input.id_type,
@@ -3032,7 +3080,7 @@ export async function submitKycSubmission(params: {
     user_id: demoUserId,
     account_type: input.account_type,
     full_legal_name: input.full_legal_name.trim(),
-    date_of_birth: input.date_of_birth.trim(),
+    date_of_birth: normalizedDob,
     nationality: input.nationality.trim(),
     country_of_residence: input.country_of_residence.trim(),
     id_type: input.id_type,
@@ -3156,6 +3204,24 @@ export async function reviewKycSubmission(params: {
     (state.kycSubmission?.id === params.submissionId ? state.kycSubmission : undefined);
   if (!target) {
     throw new Error('KYC submission record not found.');
+  }
+
+  if (params.decision === 'approved') {
+    validateKycDateOfBirth(target.account_type, target.date_of_birth);
+    const targetIdNum = target.id_number.trim().toUpperCase();
+    const targetIdType = target.id_type.trim().toLowerCase();
+    const duplicate = state.kycQueue.find(
+      (other) =>
+        other.id !== target.id &&
+        other.status === 'approved' &&
+        other.id_number.trim().toUpperCase() === targetIdNum &&
+        other.id_type.trim().toLowerCase() === targetIdType
+    );
+    if (duplicate) {
+      throw new Error(
+        'Duplicate identity conflict: another approved KYC/KYB account already uses this ID number and type.'
+      );
+    }
   }
 
   const nowIso = new Date().toISOString();
