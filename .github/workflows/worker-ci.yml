@@ -33,7 +33,7 @@ jobs:
         run: npm test
 
       - name: Run W-03 AML fail-closed staging suite
-        run: npm run test:w03 --if-present
+        run: npm run test:w03
 
   frontend-ci:
     name: Frontend Typecheck & Build (Node 22.x)
@@ -46,12 +46,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22.x"
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
 
       - name: TypeScript check
         run: npm run lint
+
+      - name: Run KYC security & parity tests
+        run: npm test
 
       - name: Production Vite build
         run: npm run build

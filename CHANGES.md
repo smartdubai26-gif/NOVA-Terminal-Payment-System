@@ -491,3 +491,18 @@
    - Removed `ntps.kyc_rpc_bypass` GUC trust and unified the write guard into a `SECURITY INVOKER` trigger (`trg_enforce_kyc_immutability_and_guard`) verifying `current_user IN ('postgres', 'supabase_admin', 'service_role')`, preserving all ownership, immutability, path-prefix, and anti-tamper protections.
 5. **`[KYC-5]` Restricted KYC Lookup RPC (`is_user_kyc_approved`, `is_my_kyc_approved`):**
    - Revoked `EXECUTE` on `public.is_user_kyc_approved(UUID)` from `PUBLIC`, `anon`, and `authenticated` (retaining `service_role` and internal `SECURITY DEFINER` RPC usage) and added `public.is_my_kyc_approved()` for safe self-status checks.
+
+---
+
+## KYC Round-6 Audit Remediation (`012_kyc_audit_round6_hardening.sql`)
+
+### Summary of Changes
+
+1. **`[NEW-A]` Cross-Document-Type Identity Uniqueness (`supabase/migrations/012_kyc_audit_round6_hardening.sql`, `src/lib/ledgerEngine.ts`):**
+   - Replaced `idx_kyc_submissions_approved_id_unique` with `idx_kyc_submissions_approved_id_number_unique` on `(upper(trim(id_number))) WHERE status = 'approved'` so the same normalized ID number cannot be approved twice by switching `id_type` (`national_id` vs `passport`). Updated `review_kyc_submission` and Local Demo parity checks accordingly.
+2. **`[NEW-B]` Safe Pre-Validate Guard (`supabase/migrations/011_harden_kyc_verification.sql`, `supabase/tests/kyc_preflight_check.sql`):**
+   - Wrapped `ALTER TABLE ... VALIDATE CONSTRAINT chk_kyc_dob_and_minimum_age` in a pre-check so `KYC-1`, `KYC-2`, `KYC-4`, and `KYC-5` commit cleanly while `NOT VALID` blocks all future violating writes and emits a clear warning if legacy rows need manual remediation. Added read-only preflight diagnostic script `supabase/tests/kyc_preflight_check.sql`.
+3. **`[NEW-D]` Compliance Audit Preservation (`supabase/migrations/012_kyc_audit_round6_hardening.sql`):**
+   - Switched `kyc_submissions.user_id` foreign key from `ON DELETE CASCADE` to `ON DELETE RESTRICT` and added `archived_at` protected against non-privileged client edits.
+4. **`[NEW-E]` & Automated KYC Regression Tests (`.github/workflows/worker-ci.yml`, `package.json`, `package-lock.json`, `supabase/tests/kyc_security_test.ts`):**
+   - Committed root `package-lock.json`, updated frontend CI to `npm ci` with lockfile caching, removed `--if-present` from `npm run test:w03`, and added `npm test` running `supabase/tests/kyc_security_test.ts`.

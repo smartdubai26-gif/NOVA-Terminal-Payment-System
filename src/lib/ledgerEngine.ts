@@ -3209,17 +3209,15 @@ export async function reviewKycSubmission(params: {
   if (params.decision === 'approved') {
     validateKycDateOfBirth(target.account_type, target.date_of_birth);
     const targetIdNum = target.id_number.trim().toUpperCase();
-    const targetIdType = target.id_type.trim().toLowerCase();
     const duplicate = state.kycQueue.find(
       (other) =>
         other.id !== target.id &&
         other.status === 'approved' &&
-        other.id_number.trim().toUpperCase() === targetIdNum &&
-        other.id_type.trim().toLowerCase() === targetIdType
+        other.id_number.trim().toUpperCase() === targetIdNum
     );
     if (duplicate) {
       throw new Error(
-        'Duplicate identity conflict: another approved KYC/KYB account already uses this ID number and type.'
+        'Duplicate identity conflict: another approved KYC/KYB account already uses this ID number.'
       );
     }
   }

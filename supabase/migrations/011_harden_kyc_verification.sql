@@ -83,8 +83,29 @@ BEGIN
 END
 $$;
 
-ALTER TABLE public.kyc_submissions
-  VALIDATE CONSTRAINT chk_kyc_dob_and_minimum_age;
+-- [NEW-B] Validate existing rows only if none violate the new age/DOB rule;
+-- otherwise warn so KYC-1, KYC-2, KYC-4, and KYC-5 still commit while
+-- chk_kyc_dob_and_minimum_age (NOT VALID) blocks all future non-compliant writes.
+DO $$
+DECLARE
+  v_violating_count BIGINT;
+BEGIN
+  SELECT COUNT(*) INTO v_violating_count
+  FROM public.kyc_submissions
+  WHERE COALESCE(lower(trim(account_type)), 'individual') <> 'corporate'
+    AND (
+      date_of_birth IS NULL
+      OR date_of_birth > (CURRENT_DATE - INTERVAL '18 years')::date
+    );
+
+  IF v_violating_count = 0 THEN
+    ALTER TABLE public.kyc_submissions
+      VALIDATE CONSTRAINT chk_kyc_dob_and_minimum_age;
+  ELSE
+    RAISE WARNING 'Skipped VALIDATE CONSTRAINT chk_kyc_dob_and_minimum_age: % legacy row(s) violate minimum age/DOB rule. Inspect with supabase/tests/kyc_preflight_check.sql and remediate before re-validating.', v_violating_count;
+  END IF;
+END
+$$;
 
 -- ----------------------------------------------------------------------------
 -- [KYC-2] Prevent owners from deleting or overwriting KYC documents once a
