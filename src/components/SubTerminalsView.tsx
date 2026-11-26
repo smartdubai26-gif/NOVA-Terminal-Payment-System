@@ -27,6 +27,7 @@ import {
   validateTerminalId,
 } from '../lib/terminalId';
 import { formatAssetAmount, formatUsd } from '../lib/format';
+import { useLocale } from '../context/LocaleContext';
 
 interface SubTerminalsViewProps {
   terminals: TerminalRecord[];
@@ -70,11 +71,11 @@ export function SubTerminalsView({
   onCopy,
   onToast,
 }: SubTerminalsViewProps) {
+  const { tr } = useLocale();
   const isKycApproved = kycStatus === 'approved';
   const masterTerminal = terminals.find((t) => t.type === 'master') ?? terminals[0];
   const subTerminals = terminals.filter((t) => t.type === 'sub');
 
-  // Provision Sub-Terminal state
   const [showProvisionForm, setShowProvisionForm] = useState(false);
   const [newLabel, setNewLabel] = useState('');
   const [newDailyLimit, setNewDailyLimit] = useState('150000');
@@ -82,20 +83,17 @@ export function SubTerminalsView({
   const [newAllowedAssets, setNewAllowedAssets] = useState<AssetSymbol[]>(['USDT', 'ETH']);
   const [isProvisioning, setIsProvisioning] = useState(false);
 
-  // Policy edit modal/panel
   const [editingSubUuid, setEditingSubUuid] = useState<string | null>(null);
   const [editDaily, setEditDaily] = useState('');
   const [editPerTx, setEditPerTx] = useState('');
   const [editAssets, setEditAssets] = useState<AssetSymbol[]>([]);
 
-  // Quick Rebalance inline state
   const [rebalanceSubUuid, setRebalanceSubUuid] = useState<string | null>(null);
   const [rebalanceDirection, setRebalanceDirection] = useState<'fund' | 'recall'>('fund');
   const [rebalanceAsset, setRebalanceAsset] = useState<AssetSymbol>('USDT');
   const [rebalanceAmount, setRebalanceAmount] = useState('10000');
   const [isRebalancing, setIsRebalancing] = useState(false);
 
-  // Terminal ID Generator & Checksum Lab
   const [labInput, setLabInput] = useState(masterTerminal.terminalId);
   const labValidation = useMemo(() => validateTerminalId(labInput), [labInput]);
 
@@ -135,14 +133,18 @@ export function SubTerminalsView({
     e.preventDefault();
     if (!isKycApproved) {
       onToast(
-        'KYC verification required',
-        'Complete KYC/KYB verification before provisioning Sub-Terminals.',
+        tr('KYC verification required', 'مطلوب توثيق الهوية'),
+        tr('Complete KYC/KYB verification before provisioning Sub-Terminals.', 'أكمل توثيق الهوية قبل إنشاء المحطات الفرعية.'),
         'error'
       );
       return;
     }
     if (!newLabel.trim()) {
-      onToast('Label required', 'Enter a descriptive name for the Sub-Terminal desk or bot.', 'error');
+      onToast(
+        tr('Label required', 'التسمية مطلوبة'),
+        tr('Enter a descriptive name for the Sub-Terminal desk or bot.', 'أدخل اسماً وصفياً للمحطة الفرعية.'),
+        'error'
+      );
       return;
     }
     setIsProvisioning(true);
@@ -156,10 +158,10 @@ export function SubTerminalsView({
       });
       setNewLabel('');
       setShowProvisionForm(false);
-      onToast('Sub-Terminal provisioned', `${previewNextSubId} is now active.`, 'success');
+      onToast(tr('Sub-Terminal provisioned', 'تم إنشاء المحطة الفرعية'), `${previewNextSubId} is now active.`, 'success');
     } catch (err) {
       onToast(
-        'Provisioning blocked',
+        tr('Provisioning blocked', 'تم حظر الإنشاء'),
         err instanceof Error ? err.message : 'Unable to provision Sub-Terminal.',
         'error'
       );
@@ -186,10 +188,14 @@ export function SubTerminalsView({
         allowedAssets: editAssets,
       });
       setEditingSubUuid(null);
-      onToast('Policy updated', `Limits and asset permissions saved for ${sub.terminalId}`, 'success');
+      onToast(
+        tr('Policy updated', 'تم تحديث السياسة'),
+        `Limits and asset permissions saved for ${sub.terminalId}`,
+        'success'
+      );
     } catch (err) {
       onToast(
-        'Policy update blocked',
+        tr('Policy update blocked', 'تم رفض تحديث السياسة'),
         err instanceof Error ? err.message : 'Unable to save sub-terminal policy.',
         'error'
       );
@@ -209,7 +215,11 @@ export function SubTerminalsView({
   const handleRebalanceSubmit = async (sub: TerminalRecord) => {
     const amt = Number(rebalanceAmount);
     if (Number.isNaN(amt) || amt <= 0) {
-      onToast('Invalid amount', 'Enter a positive rebalance amount.', 'error');
+      onToast(
+        tr('Invalid amount', 'مبلغ غير صالح'),
+        tr('Enter a positive rebalance amount.', 'أدخل مبلغ إعادة موازنة موجباً.'),
+        'error'
+      );
       return;
     }
     setIsRebalancing(true);
@@ -228,13 +238,13 @@ export function SubTerminalsView({
       });
       setRebalanceSubUuid(null);
       onToast(
-        'Rebalance settled',
+        tr('Rebalance settled', 'تمت إعادة الموازنة'),
         `${formatAssetAmount(amt, rebalanceAsset)} ${rebalanceAsset} moved to ${targetCode}`,
         'success'
       );
     } catch (err) {
       onToast(
-        'Rebalance failed',
+        tr('Rebalance failed', 'فشلت إعادة الموازنة'),
         err instanceof Error ? err.message : 'Unable to rebalance',
         'error'
       );
@@ -247,49 +257,58 @@ export function SubTerminalsView({
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-      {/* Left 8 cols: Master/Sub Hierarchy Tree */}
+      {/* Start 8 cols: Master/Sub Hierarchy Tree */}
       <div className="xl:col-span-8 space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-4 bg-[#0B0F16] border border-white/[0.08] rounded-xl px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 bg-white border border-[#E2E8F0] rounded-xl px-6 py-4 shadow-xs">
           <div>
-            <h2 className="text-base font-semibold text-slate-100">
-              Master & Sub-Terminal Policy Tree
+            <h2 className="text-base font-semibold text-[#0F172A]">
+              {tr('Master & Sub-Terminal Policy Tree', 'شجرة سياسات المحطة الرئيسية والفرعية')}
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Segregated desk balances, allowed asset policies, and per-transaction caps
+            <p className="text-xs text-slate-500 mt-0.5">
+              {tr(
+                'Segregated desk balances, allowed asset policies, and per-transaction caps',
+                'أرصدة مكاتب معزولة وسياسات الأصول المسموحة وحدود كل معاملة'
+              )}
             </p>
           </div>
           {isKycApproved ? (
             <button
               type="button"
               onClick={() => setShowProvisionForm((v) => !v)}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg transition-colors whitespace-nowrap shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
-              {showProvisionForm ? 'Cancel' : 'Provision Sub-Terminal'}
+              {showProvisionForm
+                ? tr('Cancel', 'إلغاء')
+                : tr('Provision Sub-Terminal', 'إنشاء محطة فرعية')}
             </button>
           ) : (
             <button
               type="button"
               onClick={() => onNavigateToKyc?.()}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#F5C542] hover:bg-[#ffd666] rounded-lg transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg transition-colors whitespace-nowrap shadow-xs"
             >
               <UserCheck className="w-3.5 h-3.5" />
-              {kycStatus === 'pending_review' ? 'Check KYC Review Status' : 'Complete KYC to Provision'}
+              {kycStatus === 'pending_review'
+                ? tr('Check KYC Review Status', 'مراجعة حالة التوثيق')
+                : tr('Complete KYC to Provision', 'أكمل التوثيق للإنشاء')}
             </button>
           )}
         </div>
 
         {!isKycApproved && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 text-xs">
-            <div className="flex items-start gap-2.5 text-amber-100">
-              <AlertTriangle className="w-4 h-4 text-[#F5C542] shrink-0 mt-0.5" />
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 text-xs">
+            <div className="flex items-start gap-2.5 text-amber-900">
+              <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
               <div>
                 <div className="font-semibold">
-                  Sub-Terminal Provisioning Locked (KYC Status: {kycStatus.replace('_', ' ')})
+                  {tr('Sub-Terminal Provisioning Locked', 'إنشاء المحطات الفرعية مقفل')} (KYC: {kycStatus.replace('_', ' ')})
                 </div>
-                <p className="text-amber-200/80 mt-0.5">
-                  PostgreSQL compliance policies require approved Individual KYC or Corporate KYB
-                  verification before issuing new Sub-Terminal IDs.
+                <p className="text-amber-800 mt-0.5">
+                  {tr(
+                    'PostgreSQL compliance policies require approved Individual KYC or Corporate KYB verification before issuing new Sub-Terminal IDs.',
+                    'تتطلب سياسات الامتثال موافقة توثيق KYC أو KYB قبل إصدار معرفات محطات فرعية جديدة.'
+                  )}
                 </p>
               </div>
             </div>
@@ -297,9 +316,9 @@ export function SubTerminalsView({
               <button
                 type="button"
                 onClick={onNavigateToKyc}
-                className="px-3.5 py-2 text-xs font-semibold text-[#05070A] bg-[#F5C542] hover:bg-[#ffd666] rounded-lg whitespace-nowrap shrink-0"
+                className="px-3.5 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg whitespace-nowrap shrink-0"
               >
-                Open KYC Verification
+                {tr('Open KYC Verification', 'فتح التوثيق')}
               </button>
             )}
           </div>
@@ -309,51 +328,59 @@ export function SubTerminalsView({
         {isKycApproved && showProvisionForm && (
           <form
             onSubmit={handleCreateSub}
-            className="bg-[#0B0F16] border border-[#00E5FF]/30 rounded-xl p-6 space-y-5"
+            className="bg-white border border-[#1E40AF] rounded-xl p-6 space-y-5 shadow-sm"
           >
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-slate-100">
-                  Provision Child Sub-Terminal
+                <h3 className="text-sm font-semibold text-[#0F172A]">
+                  {tr('Provision Child Sub-Terminal', 'إنشاء محطة فرعية تابعة')}
                 </h3>
-                <p className="text-xs font-mono text-[#00E5FF] mt-0.5">{previewNextSubId}</p>
+                <p className="text-xs font-mono tabular-nums text-[#1E40AF] font-semibold mt-0.5">
+                  {previewNextSubId}
+                </p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-300">Desk / Bot Label</label>
+                <label className="block text-xs font-semibold text-[#0F172A]">
+                  {tr('Desk / Bot Label', 'اسم المكتب / البوت')}
+                </label>
                 <input
                   type="text"
                   value={newLabel}
                   onChange={(e) => setNewLabel(e.target.value)}
                   placeholder="e.g. Perps Hedging Desk"
-                  className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none"
+                  className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3 py-2 text-xs text-[#0F172A] focus:outline-none"
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-300">Per-Tx Limit (USD)</label>
+                <label className="block text-xs font-semibold text-[#0F172A]">
+                  {tr('Per-Tx Limit (USD)', 'الحد لكل معاملة (USD)')}
+                </label>
                 <input
                   type="number"
                   value={newPerTxLimit}
                   onChange={(e) => setNewPerTxLimit(e.target.value)}
-                  className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3 py-2 font-mono text-xs text-slate-100 focus:outline-none"
+                  className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3 py-2 font-mono tabular-nums text-xs text-[#0F172A] focus:outline-none"
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-300">Daily Limit (USD)</label>
+                <label className="block text-xs font-semibold text-[#0F172A]">
+                  {tr('Daily Limit (USD)', 'الحد اليومي (USD)')}
+                </label>
                 <input
                   type="number"
                   value={newDailyLimit}
                   onChange={(e) => setNewDailyLimit(e.target.value)}
-                  className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3 py-2 font-mono text-xs text-slate-100 focus:outline-none"
+                  className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3 py-2 font-mono tabular-nums text-xs text-[#0F172A] focus:outline-none"
                 />
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-white/[0.06]">
+            <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-[#E2E8F0]">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400 mr-1">Allowed Assets:</span>
+                <span className="text-xs text-slate-600 me-1">{tr('Allowed Assets:', 'الأصول المسموحة:')}</span>
                 {(['USDT', 'BTC', 'ETH'] as AssetSymbol[]).map((sym) => {
                   const active = newAllowedAssets.includes(sym);
                   return (
@@ -361,10 +388,10 @@ export function SubTerminalsView({
                       key={sym}
                       type="button"
                       onClick={() => setNewAllowedAssets((prev) => toggleAssetInList(prev, sym))}
-                      className={`px-3 py-1.5 text-xs font-mono rounded-md border transition-colors ${
+                      className={`px-3 py-1.5 text-xs font-mono font-semibold rounded-md border transition-colors ${
                         active
-                          ? 'bg-[#00E5FF]/15 border-[#00E5FF]/40 text-[#00E5FF]'
-                          : 'bg-[#05070A] border-white/[0.08] text-slate-500'
+                          ? 'bg-[#1E40AF] border-[#1E40AF] text-white'
+                          : 'bg-[#F4F7FA] border-[#E2E8F0] text-slate-500'
                       }`}
                     >
                       {sym}
@@ -376,56 +403,62 @@ export function SubTerminalsView({
               <button
                 type="submit"
                 disabled={isProvisioning}
-                className="px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg"
+                className="px-4 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg shadow-xs"
               >
-                {isProvisioning ? 'Provisioning...' : 'Create Sub-Terminal'}
+                {isProvisioning
+                  ? tr('Provisioning...', 'جاري الإنشاء...')
+                  : tr('Create Sub-Terminal', 'إنشاء محطة فرعية')}
               </button>
             </div>
           </form>
         )}
 
-        {/* Root Master Terminal Node */}
-        <div className="bg-[#0B0F16] border border-[#00E5FF]/30 rounded-xl p-5">
+        {/* Root Master Terminal Node — Cobalt Blue Primary Identity */}
+        <div className="cobalt-hero-surface border border-[#24489B] rounded-xl p-5 text-white">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2.5 text-xs">
-                <span className="font-semibold text-[#F5C542]">Master Root</span>
-                <span className="text-slate-600">/</span>
-                <span className="inline-flex items-center gap-1 text-emerald-400">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  Active
+                <span className="px-2 py-0.5 rounded bg-[#D6FF3D] text-[#0F172A] font-semibold">
+                  {tr('Master Root', 'الجذر الرئيسي')}
+                </span>
+                <span className="text-blue-200/70">/</span>
+                <span className="inline-flex items-center gap-1 text-white font-medium">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#D6FF3D]" />
+                  {tr('Active', 'نشط')}
                 </span>
               </div>
               <div className="flex items-center gap-2.5">
-                <span className="font-mono text-base font-bold text-[#00E5FF]">
+                <span className="font-mono tabular-nums text-base font-bold text-white">
                   {masterTerminal.terminalId}
                 </span>
                 <button
                   type="button"
-                  onClick={() => onCopy(masterTerminal.terminalId, 'Copied Master Terminal ID')}
-                  className="text-slate-400 hover:text-slate-100 p-1"
+                  onClick={() =>
+                    onCopy(masterTerminal.terminalId, tr('Copied Master Terminal ID', 'تم نسخ معرف المحطة الرئيسية'))
+                  }
+                  className="text-blue-100 hover:text-[#D6FF3D] p-1"
                   aria-label="Copy Master Terminal ID"
                 >
                   <Copy className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <p className="text-xs text-slate-400">{masterTerminal.label}</p>
+              <p className="text-xs text-blue-100/85">{masterTerminal.label}</p>
             </div>
 
-            <div className="text-right">
-              <p className="text-xs text-slate-400">Master Treasury</p>
-              <p className="font-mono tabular-nums text-xl font-bold text-[#F5C542]">
+            <div className="text-end">
+              <p className="text-xs text-blue-100/85">{tr('Master Treasury', 'الخزينة الرئيسية')}</p>
+              <p className="font-mono tabular-nums text-xl font-bold text-white">
                 {formatUsd(masterTotalUsd)}
               </p>
-              <p className="text-[11px] font-mono text-slate-400 mt-0.5">
-                Daily Cap: {formatUsd(masterTerminal.daily_limit_usd)}
+              <p className="text-[11px] font-mono tabular-nums text-[#D6FF3D] mt-0.5">
+                {tr('Daily Cap:', 'الحد اليومي:')} {formatUsd(masterTerminal.daily_limit_usd)}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Child Sub-Terminals Tree List */}
-        <div className="pl-4 sm:pl-8 space-y-4 border-l border-white/[0.12] ml-4">
+        {/* Child Sub-Terminals Tree List — Logical RTL/LTR Connectors */}
+        <div className="ps-4 sm:ps-8 space-y-4 border-s-2 border-[#CBD5E1] ms-4">
           {subTerminals.map((sub) => {
             const subUsd = computePortfolioUsd(wallets, [sub.id], assetRates);
             const isEditing = editingSubUuid === sub.id;
@@ -436,49 +469,51 @@ export function SubTerminalsView({
                 {/* Branch horizontal connector */}
                 <span
                   aria-hidden="true"
-                  className="hidden sm:block absolute -left-8 top-7 w-7 h-px bg-white/[0.12]"
+                  className="hidden sm:block absolute -start-8 top-7 w-7 h-0.5 bg-[#CBD5E1]"
                 />
 
-                <div className="bg-[#0B0F16] border border-white/[0.08] rounded-xl p-5 space-y-4">
+                <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 space-y-4 shadow-xs">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="font-semibold text-slate-200">{sub.label}</span>
-                        <span className="text-slate-600">·</span>
+                        <span className="font-semibold text-[#0F172A]">{sub.label}</span>
+                        <span className="text-slate-400">·</span>
                         <span
-                          className={`font-medium ${
-                            sub.status === 'active' ? 'text-emerald-400' : 'text-amber-400'
+                          className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-semibold ${
+                            sub.status === 'active'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-800 border-amber-200'
                           }`}
                         >
-                          {sub.status === 'active' ? 'Active' : 'Suspended'}
+                          {sub.status === 'active' ? tr('Active', 'نشط') : tr('Suspended', 'موقوف')}
                         </span>
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <code className="font-mono text-sm font-semibold text-slate-100">
+                        <code className="font-mono tabular-nums text-sm font-bold text-[#1E40AF]">
                           {sub.terminalId}
                         </code>
                         <button
                           type="button"
-                          onClick={() => onCopy(sub.terminalId, 'Copied Sub-Terminal ID')}
-                          className="text-slate-400 hover:text-[#00E5FF] p-0.5"
+                          onClick={() => onCopy(sub.terminalId, tr('Copied Sub-Terminal ID', 'تم نسخ معرف المحطة الفرعية'))}
+                          className="text-slate-400 hover:text-[#1E40AF] p-0.5"
                           aria-label={`Copy ${sub.terminalId}`}
                         >
                           <Copy className="w-3.5 h-3.5" />
                         </button>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-slate-400 font-mono tabular-nums">
-                        <span>Assets: {sub.allowed_assets.join(', ')}</span>
-                        <span className="text-slate-600">|</span>
-                        <span>Per-Tx: {formatUsd(sub.per_tx_limit_usd)}</span>
-                        <span className="text-slate-600">|</span>
-                        <span>Daily: {formatUsd(sub.daily_limit_usd)}</span>
+                      <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-slate-500 font-mono tabular-nums">
+                        <span>{tr('Assets:', 'الأصول:')} {sub.allowed_assets.join(', ')}</span>
+                        <span className="text-slate-300">|</span>
+                        <span>{tr('Per-Tx:', 'لكل معاملة:')} {formatUsd(sub.per_tx_limit_usd)}</span>
+                        <span className="text-slate-300">|</span>
+                        <span>{tr('Daily:', 'يومي:')} {formatUsd(sub.daily_limit_usd)}</span>
                       </div>
                     </div>
 
-                    <div className="text-right space-y-2">
-                      <div className="font-mono tabular-nums text-lg font-bold text-[#F5C542]">
+                    <div className="text-end space-y-2">
+                      <div className="font-mono tabular-nums text-lg font-bold text-[#0F172A]">
                         {formatUsd(subUsd)}
                       </div>
                       <div className="flex items-center justify-end gap-2">
@@ -489,49 +524,49 @@ export function SubTerminalsView({
                             setEditingSubUuid(null);
                             setRebalanceAsset(sub.allowed_assets[0] ?? 'USDT');
                           }}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-[#00E5FF] bg-[#00E5FF]/10 hover:bg-[#00E5FF]/20 border border-[#00E5FF]/25 rounded-md transition-colors whitespace-nowrap"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-md transition-colors whitespace-nowrap"
                         >
                           <ArrowRightLeft className="w-3 h-3" />
-                          Rebalance
+                          {tr('Rebalance', 'موازنة')}
                         </button>
                         <button
                           type="button"
                           onClick={() =>
                             isEditing ? setEditingSubUuid(null) : openPolicyEditor(sub)
                           }
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-200 bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] rounded-md transition-colors whitespace-nowrap"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-[#0F172A] bg-[#F4F7FA] hover:bg-slate-200/70 border border-[#E2E8F0] rounded-md transition-colors whitespace-nowrap"
                         >
-                          <SlidersHorizontal className="w-3 h-3" />
-                          Policy
+                          <SlidersHorizontal className="w-3 h-3 text-[#1E40AF]" />
+                          {tr('Policy', 'السياسة')}
                         </button>
                         <button
                           type="button"
                           onClick={() => handleToggleStatus(sub)}
-                          className="px-2.5 py-1.5 text-xs font-medium text-slate-300 bg-white/[0.04] hover:bg-white/[0.09] border border-white/[0.08] rounded-md transition-colors whitespace-nowrap"
+                          className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-[#F4F7FA] hover:bg-slate-200/70 border border-[#E2E8F0] rounded-md transition-colors whitespace-nowrap"
                         >
-                          {sub.status === 'active' ? 'Suspend' : 'Activate'}
+                          {sub.status === 'active' ? tr('Suspend', 'تعليق') : tr('Activate', 'تفعيل')}
                         </button>
                       </div>
                     </div>
                   </div>
 
                   {/* Individual Asset Balances Row */}
-                  <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/[0.06]">
+                  <div className="grid grid-cols-3 gap-3 pt-3 border-t border-[#E2E8F0]">
                     {(['USDT', 'BTC', 'ETH'] as AssetSymbol[]).map((sym) => {
                       const bal = getTerminalAssetTotal(wallets, sub.id, sym);
                       const enabled = sub.allowed_assets.includes(sym);
                       return (
                         <div
                           key={sym}
-                          className={`bg-[#05070A] border border-white/[0.06] rounded-lg px-3 py-2 ${
-                            !enabled ? 'opacity-45' : ''
+                          className={`bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-3 py-2 ${
+                            !enabled ? 'opacity-50' : ''
                           }`}
                         >
-                          <div className="flex items-center justify-between text-[11px] text-slate-400">
-                            <span className="font-mono font-semibold">{sym}</span>
-                            <span>{enabled ? 'Enabled' : 'Blocked'}</span>
+                          <div className="flex items-center justify-between text-[11px] text-slate-500">
+                            <span className="font-mono font-bold text-[#0F172A]">{sym}</span>
+                            <span>{enabled ? tr('Enabled', 'مفعّل') : tr('Blocked', 'محظور')}</span>
                           </div>
-                          <div className="font-mono tabular-nums text-xs text-slate-100 mt-1">
+                          <div className="font-mono tabular-nums text-xs font-semibold text-[#0F172A] mt-1">
                             {formatAssetAmount(bal.available, sym)}
                           </div>
                           <div className="font-mono tabular-nums text-[11px] text-slate-500">
@@ -544,33 +579,33 @@ export function SubTerminalsView({
 
                   {/* Quick Rebalance Drawer */}
                   {isRebalancingThis && (
-                    <div className="bg-[#05070A] border border-[#00E5FF]/25 rounded-lg p-4 space-y-3">
+                    <div className="bg-[#F4F7FA] border border-[#1E40AF]/30 rounded-lg p-4 space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-medium text-slate-200">
-                          Instant Master ↔ Sub-Terminal Allocation ($0 Fee)
+                        <span className="text-xs font-semibold text-[#0F172A]">
+                          {tr('Instant Master ↔ Sub-Terminal Allocation ($0 Fee)', 'تخصيص فوري بين الرئيسية والفرعية (رسوم $0)')}
                         </span>
-                        <div className="flex items-center gap-1 bg-[#0B0F16] p-0.5 rounded-md border border-white/[0.08] text-[11px]">
+                        <div className="flex items-center gap-1 bg-white p-0.5 rounded-md border border-[#E2E8F0] text-[11px]">
                           <button
                             type="button"
                             onClick={() => setRebalanceDirection('fund')}
                             className={`px-2.5 py-1 rounded ${
                               rebalanceDirection === 'fund'
-                                ? 'bg-[#00E5FF] text-[#05070A] font-semibold'
-                                : 'text-slate-400'
+                                ? 'bg-[#1E40AF] text-white font-semibold'
+                                : 'text-slate-600'
                             }`}
                           >
-                            Fund Sub
+                            {tr('Fund Sub', 'تمويل الفرعية')}
                           </button>
                           <button
                             type="button"
                             onClick={() => setRebalanceDirection('recall')}
                             className={`px-2.5 py-1 rounded ${
                               rebalanceDirection === 'recall'
-                                ? 'bg-[#00E5FF] text-[#05070A] font-semibold'
-                                : 'text-slate-400'
+                                ? 'bg-[#1E40AF] text-white font-semibold'
+                                : 'text-slate-600'
                             }`}
                           >
-                            Recall to Master
+                            {tr('Recall to Master', 'استرداد للرئيسية')}
                           </button>
                         </div>
                       </div>
@@ -579,7 +614,7 @@ export function SubTerminalsView({
                         <select
                           value={rebalanceAsset}
                           onChange={(e) => setRebalanceAsset(e.target.value as AssetSymbol)}
-                          className="bg-[#0B0F16] border border-white/[0.12] rounded-md px-3 py-2 text-xs font-mono text-slate-100 focus:outline-none"
+                          className="bg-white border border-[#E2E8F0] rounded-md px-3 py-2 text-xs font-mono text-[#0F172A] focus:outline-none"
                         >
                           {sub.allowed_assets.map((a) => (
                             <option key={a} value={a}>
@@ -592,15 +627,15 @@ export function SubTerminalsView({
                           step="any"
                           value={rebalanceAmount}
                           onChange={(e) => setRebalanceAmount(e.target.value)}
-                          className="flex-1 bg-[#0B0F16] border border-white/[0.12] rounded-md px-3 py-2 font-mono text-xs text-slate-100 focus:border-[#00E5FF] focus:outline-none"
+                          className="flex-1 bg-white border border-[#E2E8F0] rounded-md px-3 py-2 font-mono tabular-nums text-xs text-[#0F172A] focus:border-[#1E40AF] focus:outline-none"
                         />
                         <button
                           type="button"
                           disabled={isRebalancing}
                           onClick={() => handleRebalanceSubmit(sub)}
-                          className="px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-md whitespace-nowrap"
+                          className="px-4 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-md whitespace-nowrap"
                         >
-                          {isRebalancing ? 'Settling...' : 'Execute'}
+                          {isRebalancing ? tr('Settling...', 'جاري التسوية...') : tr('Execute', 'تنفيذ')}
                         </button>
                       </div>
                     </div>
@@ -608,31 +643,35 @@ export function SubTerminalsView({
 
                   {/* Policy Editor Drawer */}
                   {isEditing && (
-                    <div className="bg-[#05070A] border border-white/[0.12] rounded-lg p-4 space-y-4">
+                    <div className="bg-[#F4F7FA] border border-[#E2E8F0] rounded-lg p-4 space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <label className="text-[11px] text-slate-400">Per-Tx Limit (USD)</label>
+                          <label className="text-[11px] font-semibold text-[#0F172A]">
+                            {tr('Per-Tx Limit (USD)', 'الحد لكل معاملة (USD)')}
+                          </label>
                           <input
                             type="number"
                             value={editPerTx}
                             onChange={(e) => setEditPerTx(e.target.value)}
-                            className="w-full bg-[#0B0F16] border border-white/[0.12] rounded-md px-3 py-2 font-mono text-xs text-slate-100"
+                            className="w-full bg-white border border-[#E2E8F0] rounded-md px-3 py-2 font-mono tabular-nums text-xs text-[#0F172A]"
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[11px] text-slate-400">Daily Limit (USD)</label>
+                          <label className="text-[11px] font-semibold text-[#0F172A]">
+                            {tr('Daily Limit (USD)', 'الحد اليومي (USD)')}
+                          </label>
                           <input
                             type="number"
                             value={editDaily}
                             onChange={(e) => setEditDaily(e.target.value)}
-                            className="w-full bg-[#0B0F16] border border-white/[0.12] rounded-md px-3 py-2 font-mono text-xs text-slate-100"
+                            className="w-full bg-white border border-[#E2E8F0] rounded-md px-3 py-2 font-mono tabular-nums text-xs text-[#0F172A]"
                           />
                         </div>
                       </div>
 
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-400">Assets:</span>
+                          <span className="text-xs text-slate-600">{tr('Assets:', 'الأصول:')}</span>
                           {(['USDT', 'BTC', 'ETH'] as AssetSymbol[]).map((sym) => {
                             const active = editAssets.includes(sym);
                             return (
@@ -640,10 +679,10 @@ export function SubTerminalsView({
                                 key={sym}
                                 type="button"
                                 onClick={() => setEditAssets((p) => toggleAssetInList(p, sym))}
-                                className={`px-2.5 py-1 text-xs font-mono rounded border ${
+                                className={`px-2.5 py-1 text-xs font-mono font-semibold rounded border ${
                                   active
-                                    ? 'bg-[#00E5FF]/15 border-[#00E5FF]/40 text-[#00E5FF]'
-                                    : 'bg-[#0B0F16] border-white/[0.08] text-slate-500'
+                                    ? 'bg-[#1E40AF] border-[#1E40AF] text-white'
+                                    : 'bg-white border-[#E2E8F0] text-slate-500'
                                 }`}
                               >
                                 {sym}
@@ -654,9 +693,9 @@ export function SubTerminalsView({
                         <button
                           type="button"
                           onClick={() => handleSavePolicy(sub)}
-                          className="px-4 py-1.5 text-xs font-semibold text-[#05070A] bg-emerald-400 hover:bg-emerald-300 rounded-md"
+                          className="px-4 py-1.5 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-md"
                         >
-                          Save Policy
+                          {tr('Save Policy', 'حفظ السياسة')}
                         </button>
                       </div>
                     </div>
@@ -668,31 +707,34 @@ export function SubTerminalsView({
         </div>
       </div>
 
-      {/* Right 4 cols: Crockford Base32 Mod-37 Generator & Validator Lab */}
-      <div className="xl:col-span-4 bg-[#0B0F16] border border-white/[0.08] rounded-xl p-6 space-y-5">
+      {/* End 4 cols: Crockford Base32 Mod-37 Generator & Validator Lab */}
+      <div className="xl:col-span-4 bg-white border border-[#E2E8F0] rounded-xl p-6 space-y-5 shadow-xs">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <h3 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-              <GitBranch className="w-4 h-4 text-[#00E5FF]" />
-              Terminal ID Generator & Validator
+            <h3 className="text-sm font-semibold text-[#0F172A] flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-[#1E40AF]" />
+              {tr('Terminal ID Generator & Validator', 'مولد ومتحقق معرفات المحطات')}
             </h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Crockford Base32 (excludes I, L, O, U) with Mod-37 check character
+            <p className="text-xs text-slate-500 mt-1">
+              {tr(
+                'Crockford Base32 (excludes I, L, O, U) with Mod-37 check character',
+                'ترميز Crockford Base32 مع خانة تحقق Mod-37'
+              )}
             </p>
           </div>
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="ntps-lab-input" className="text-xs font-medium text-slate-300">
-            Test Normalization & Checksum
+          <label htmlFor="ntps-lab-input" className="text-xs font-semibold text-[#0F172A]">
+            {tr('Test Normalization & Checksum', 'اختبار التطبيع والتحقق')}
           </label>
           <div
-            className={`flex items-center bg-[#05070A] border rounded-lg px-3 py-2.5 transition-all ${
+            className={`flex items-center bg-[#F8FAFC] border rounded-lg px-3 py-2.5 transition-all ${
               labValidation.isEmpty
-                ? 'border-white/[0.12]'
+                ? 'border-[#E2E8F0]'
                 : labValidation.isValid
-                  ? 'border-emerald-500/80'
-                  : 'border-red-500/80'
+                  ? 'border-emerald-500'
+                  : 'border-red-500'
             }`}
           >
             <input
@@ -704,52 +746,60 @@ export function SubTerminalsView({
                 setLabInput(normalized || e.target.value.toUpperCase());
               }}
               placeholder="nt-0mega-7k9p-3m2x"
-              className="flex-1 bg-transparent font-mono text-xs text-slate-100 focus:outline-none"
+              className="flex-1 bg-transparent font-mono tabular-nums text-xs text-[#0F172A] focus:outline-none"
             />
             {!labValidation.isEmpty &&
               (labValidation.isValid ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               ) : (
-                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
               ))}
           </div>
 
           <div className="text-xs min-h-[18px]">
             {labValidation.isValid ? (
-              <span className="text-emerald-400">
-                Valid {labValidation.type === 'sub' ? 'Sub-Terminal' : 'Master Terminal'} ID
+              <span className="text-emerald-700 font-medium">
+                {tr('Valid', 'صالح')}{' '}
+                {labValidation.type === 'sub'
+                  ? tr('Sub-Terminal', 'محطة فرعية')
+                  : tr('Master Terminal', 'محطة رئيسية')}{' '}
+                ID
               </span>
             ) : labValidation.error ? (
-              <span className="text-red-400">{labValidation.error}</span>
+              <span className="text-red-600">{labValidation.error}</span>
             ) : null}
           </div>
         </div>
 
-        <div className="bg-[#05070A] border border-white/[0.07] rounded-lg divide-y divide-white/[0.06] text-xs">
+        <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg divide-y divide-[#E2E8F0] text-xs">
           <div className="flex items-center justify-between px-3.5 py-2.5">
-            <span className="text-slate-400">Payload (7 chars)</span>
-            <span className="font-mono text-slate-200">{labValidation.payload7 ?? '—'}</span>
+            <span className="text-slate-500">{tr('Payload (7 chars)', 'الحمولة (7 أحرف)')}</span>
+            <span className="font-mono tabular-nums text-[#0F172A] font-semibold">
+              {labValidation.payload7 ?? '—'}
+            </span>
           </div>
           <div className="flex items-center justify-between px-3.5 py-2.5">
-            <span className="text-slate-400">Expected Mod-37 Check</span>
-            <span className="font-mono text-[#00E5FF]">
+            <span className="text-slate-500">{tr('Expected Mod-37 Check', 'خانة Mod-37 المتوقعة')}</span>
+            <span className="font-mono text-[#1E40AF] font-bold">
               {labValidation.checkCharExpected ?? '—'}
             </span>
           </div>
           <div className="flex items-center justify-between px-3.5 py-2.5">
-            <span className="text-slate-400">Actual Check Char</span>
+            <span className="text-slate-500">{tr('Actual Check Char', 'الخانة الفعلية')}</span>
             <span
-              className={`font-mono ${
-                labValidation.isValid ? 'text-emerald-400' : 'text-red-400'
+              className={`font-mono font-bold ${
+                labValidation.isValid ? 'text-emerald-700' : 'text-red-600'
               }`}
             >
               {labValidation.checkCharActual ?? '—'}
             </span>
           </div>
           <div className="flex items-center justify-between px-3.5 py-2.5">
-            <span className="text-slate-400">Auto-Corrections</span>
-            <span className="font-mono text-slate-300 text-right">
-              {labValidation.corrections.length > 0 ? labValidation.corrections[0] : 'None'}
+            <span className="text-slate-500">{tr('Auto-Corrections', 'التصحيحات التلقائية')}</span>
+            <span className="font-mono text-slate-700 text-end">
+              {labValidation.corrections.length > 0
+                ? labValidation.corrections[0]
+                : tr('None', 'لا يوجد')}
             </span>
           </div>
         </div>
@@ -760,12 +810,12 @@ export function SubTerminalsView({
             onClick={() => {
               const id = generateMasterTerminalId();
               setLabInput(id);
-              onToast('Generated Master ID', id, 'info');
+              onToast(tr('Generated Master ID', 'تم توليد معرف رئيسي'), id, 'info');
             }}
-            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-100 bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] rounded-lg transition-colors whitespace-nowrap"
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg transition-colors whitespace-nowrap"
           >
-            <RefreshCw className="w-3.5 h-3.5 text-[#00E5FF]" />
-            New Master ID
+            <RefreshCw className="w-3.5 h-3.5" />
+            {tr('New Master ID', 'معرف رئيسي جديد')}
           </button>
           <button
             type="button"
@@ -776,10 +826,10 @@ export function SubTerminalsView({
               const id = generateSubTerminalId(base, 1 + (arr[0] % 19));
               setLabInput(id);
             }}
-            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-100 bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] rounded-lg transition-colors whitespace-nowrap"
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-[#0F172A] bg-[#F4F7FA] hover:bg-slate-200/70 border border-[#E2E8F0] rounded-lg transition-colors whitespace-nowrap"
           >
-            <Plus className="w-3.5 h-3.5 text-[#F5C542]" />
-            Sample Sub ID
+            <Plus className="w-3.5 h-3.5 text-[#1E40AF]" />
+            {tr('Sample Sub ID', 'معرف فرعي تجريبي')}
           </button>
         </div>
       </div>

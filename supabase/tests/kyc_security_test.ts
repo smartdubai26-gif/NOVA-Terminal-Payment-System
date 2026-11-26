@@ -88,6 +88,23 @@ test('SQL migrations 010–012 enforce KYC-1..5 and Round-6 NEW-A/B/D invariants
   assert.match(m012, /ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ/);
 });
 
+test('SQL migrations 005, 008, 009 & preflight check enforce RBAC, worker leases, and NEW-F verified=false default', () => {
+  const m005 = readMigration('005_admin_rbac.sql');
+  const m008 = readMigration('008_stage2_defensive_hardening.sql');
+  const m009 = readMigration('009_worker_destination_trust.sql');
+  const preflight = fs.readFileSync(path.resolve(process.cwd(), 'supabase/tests/kyc_preflight_check.sql'), 'utf8');
+
+  assert.match(m005, /CREATE TABLE IF NOT EXISTS public\.app_admins/);
+  assert.match(m005, /CREATE OR REPLACE FUNCTION public\.is_ntps_admin/);
+  assert.match(m008, /CREATE OR REPLACE FUNCTION public\.acquire_worker_lease/);
+  assert.match(m008, /CREATE OR REPLACE FUNCTION public\.release_worker_lease/);
+  assert.match(m009, /ALTER TABLE public\.whitelist_addresses\s+ALTER COLUMN verified SET DEFAULT FALSE;/);
+  assert.match(m009, /ADD COLUMN IF NOT EXISTS destination_snapshot TEXT;/);
+  assert.match(m009, /CREATE OR REPLACE FUNCTION public\.verify_whitelist_address_admin/);
+  assert.match(preflight, /date_of_birth > \(CURRENT_DATE - INTERVAL '18 years'\)::date/);
+  assert.match(preflight, /GROUP BY upper\(trim\(id_number\)\)/);
+});
+
 test('KYC-3: validateKycDateOfBirth allows nullable corporate DOB and enforces >= 18 for individuals', () => {
   // Corporate: empty / null allowed; valid past date allowed; future date rejected
   assert.equal(ledger.validateKycDateOfBirth('corporate', ''), null);

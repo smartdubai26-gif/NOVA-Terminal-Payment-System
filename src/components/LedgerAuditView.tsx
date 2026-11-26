@@ -21,6 +21,7 @@ import {
   formatTimestamp,
   truncateHash,
 } from '../lib/format';
+import { useLocale } from '../context/LocaleContext';
 
 interface LedgerAuditViewProps {
   terminals: TerminalRecord[];
@@ -41,6 +42,7 @@ export function LedgerAuditView({
   onCopy,
   onToast,
 }: LedgerAuditViewProps) {
+  const { tr } = useLocale();
   const [tab, setTab] = useState<'transactions' | 'postings'>('transactions');
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | TransactionType>('ALL');
@@ -60,7 +62,9 @@ export function LedgerAuditView({
         setInvariantResult(res);
         if (notifyOnComplete) {
           onToast(
-            res.ok ? 'Double-Entry Invariant Verified' : 'Ledger Imbalance Detected',
+            res.ok
+              ? tr('Double-Entry Invariant Verified', 'تم التحقق من توازن القيد المزدوج')
+              : tr('Ledger Imbalance Detected', 'تم اكتشاف عدم توازن في الدفتر'),
             res.ok
               ? `SUM(amount) = 0 across ${res.journalCount} journal groups (${res.postingCount} postings).`
               : `${res.imbalancedCount} journal groups failed SUM(amount) = 0 invariant.`,
@@ -70,7 +74,7 @@ export function LedgerAuditView({
       } catch (err) {
         if (notifyOnComplete) {
           onToast(
-            'Invariant Check Failed',
+            tr('Invariant Check Failed', 'فشل التحقق من التوازن'),
             err instanceof Error ? err.message : 'Unable to verify ledger invariant.',
             'error'
           );
@@ -79,12 +83,11 @@ export function LedgerAuditView({
         setIsVerifying(false);
       }
     },
-    [authMode, ledgerPostings, onVerifyLedgerInvariant, onToast]
+    [authMode, ledgerPostings, onVerifyLedgerInvariant, onToast, tr]
   );
 
   useEffect(() => {
     void runInvariantVerification(false);
-    // Re-run verification whenever posting count or mode changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authMode, ledgerPostings.length]);
 
@@ -166,7 +169,7 @@ export function LedgerAuditView({
         ])
       );
       onToast(
-        'Exported transactions CSV',
+        tr('Exported transactions CSV', 'تم تصدير ملف المعاملات CSV'),
         `${filteredTransactions.length} rows exported`,
         'success'
       );
@@ -195,7 +198,7 @@ export function LedgerAuditView({
         ])
       );
       onToast(
-        'Exported double-entry postings CSV',
+        tr('Exported double-entry postings CSV', 'تم تصدير قيود القيد المزدوج CSV'),
         `${filteredPostings.length} immutable postings exported`,
         'success'
       );
@@ -206,22 +209,22 @@ export function LedgerAuditView({
     <div className="space-y-4">
       {/* Double-Entry Ledger Invariant Status Banner */}
       <div
-        className={`rounded-xl border p-4 flex flex-wrap items-center justify-between gap-4 ${
+        className={`rounded-xl border p-4 flex flex-wrap items-center justify-between gap-4 shadow-xs ${
           invariantResult === null
-            ? 'bg-[#0B0F16] border-white/[0.08]'
+            ? 'bg-white border-[#E2E8F0]'
             : invariantResult.ok
-              ? 'bg-[#0B0F16] border-emerald-500/30'
-              : 'bg-red-950/20 border-red-500/40'
+              ? 'bg-emerald-50/70 border-emerald-200'
+              : 'bg-red-50 border-red-200'
         }`}
       >
         <div className="flex items-center gap-3 min-w-0">
           <div
             className={`w-9 h-9 rounded-lg flex items-center justify-center border shrink-0 ${
               invariantResult === null
-                ? 'bg-white/[0.04] border-white/[0.08] text-slate-400'
+                ? 'bg-[#F4F7FA] border-[#E2E8F0] text-slate-500'
                 : invariantResult.ok
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                  : 'bg-red-500/10 border-red-500/30 text-red-400'
+                  ? 'bg-emerald-100 border-emerald-300 text-emerald-700'
+                  : 'bg-red-100 border-red-300 text-red-700'
             }`}
           >
             {invariantResult && !invariantResult.ok ? (
@@ -232,29 +235,29 @@ export function LedgerAuditView({
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xs font-semibold text-slate-100">
-                Double-Entry Invariant (SUM = 0)
+              <h2 className="text-xs font-semibold text-[#0F172A]">
+                {tr('Double-Entry Invariant (SUM = 0)', 'ثابت القيد المزدوج (SUM = 0)')}
               </h2>
               {invariantResult && (
                 <span
-                  className={`text-[11px] font-mono px-2 py-0.5 rounded border ${
+                  className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded border ${
                     invariantResult.ok
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
-                      : 'bg-red-500/10 text-red-400 border-red-500/25'
+                      ? 'bg-white text-emerald-700 border-emerald-300'
+                      : 'bg-white text-red-700 border-red-300'
                   }`}
                 >
                   {invariantResult.ok
-                    ? 'BALANCED · APPEND-ONLY'
-                    : `${invariantResult.imbalancedCount} IMBALANCED`}
+                    ? tr('BALANCED · APPEND-ONLY', 'متوازن · إضافة فقط')
+                    : `${invariantResult.imbalancedCount} ${tr('IMBALANCED', 'غير متوازن')}`}
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
+            <p className="text-[11px] text-slate-600 font-mono tabular-nums mt-0.5">
               {invariantResult
                 ? `${invariantResult.journalCount} journal groups · ${invariantResult.postingCount} postings · ${
                     authMode === 'supabase' ? 'Verified via PostgreSQL RPC' : 'Local Engine Check'
                   }`
-                : 'Running double-entry balance verification...'}
+                : tr('Running double-entry balance verification...', 'جاري التحقق من توازن القيد المزدوج...')}
             </p>
           </div>
         </div>
@@ -263,38 +266,38 @@ export function LedgerAuditView({
           type="button"
           disabled={isVerifying}
           onClick={() => void runInvariantVerification(true)}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-200 bg-white/[0.05] hover:bg-white/[0.1] disabled:opacity-45 border border-white/[0.1] rounded-lg transition-colors whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#0F172A] bg-white hover:bg-[#F8FAFC] disabled:opacity-45 border border-[#E2E8F0] rounded-lg transition-colors whitespace-nowrap"
         >
-          <RefreshCcw className={`w-3.5 h-3.5 text-[#00E5FF] ${isVerifying ? 'animate-spin' : ''}`} />
-          {isVerifying ? 'Verifying...' : 'Verify Invariant'}
+          <RefreshCcw className={`w-3.5 h-3.5 text-[#1E40AF] ${isVerifying ? 'animate-spin' : ''}`} />
+          {isVerifying ? tr('Verifying...', 'جاري التحقق...') : tr('Verify Invariant', 'التحقق من التوازن')}
         </button>
       </div>
 
       {/* Header & Filter Bar */}
-      <div className="bg-[#0B0F16] border border-white/[0.08] rounded-xl p-5 space-y-4">
+      <div className="bg-white border border-[#E2E8F0] rounded-xl p-5 space-y-4 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-1 p-1 bg-[#05070A] border border-white/[0.08] rounded-lg">
+          <div className="flex items-center gap-1 p-1 bg-[#F4F7FA] border border-[#E2E8F0] rounded-lg">
             <button
               type="button"
               onClick={() => setTab('transactions')}
               className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
                 tab === 'transactions'
-                  ? 'bg-[#00E5FF] text-[#05070A]'
-                  : 'text-slate-400 hover:text-slate-100'
+                  ? 'bg-[#1E40AF] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-[#0F172A]'
               }`}
             >
-              Transactions ({filteredTransactions.length})
+              {tr('Transactions', 'المعاملات')} ({filteredTransactions.length})
             </button>
             <button
               type="button"
               onClick={() => setTab('postings')}
               className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
                 tab === 'postings'
-                  ? 'bg-[#00E5FF] text-[#05070A]'
-                  : 'text-slate-400 hover:text-slate-100'
+                  ? 'bg-[#1E40AF] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-[#0F172A]'
               }`}
             >
-              Double-Entry Ledger ({filteredPostings.length})
+              {tr('Double-Entry Ledger', 'دفتر القيد المزدوج')} ({filteredPostings.length})
             </button>
           </div>
 
@@ -302,18 +305,18 @@ export function LedgerAuditView({
             <button
               type="button"
               onClick={handleResetFilters}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] rounded-lg transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 bg-[#F4F7FA] hover:bg-slate-200/70 border border-[#E2E8F0] rounded-lg transition-colors whitespace-nowrap"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              Reset
+              {tr('Reset', 'إعادة ضبط')}
             </button>
             <button
               type="button"
               onClick={handleExportCsv}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-100 bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.1] rounded-lg transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg transition-colors whitespace-nowrap shadow-xs"
             >
-              <Download className="w-3.5 h-3.5 text-[#00E5FF]" />
-              Export CSV
+              <Download className="w-3.5 h-3.5" />
+              {tr('Export CSV', 'تصدير CSV')}
             </button>
           </div>
         </div>
@@ -321,17 +324,17 @@ export function LedgerAuditView({
         {/* Filter Controls */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="lg:col-span-2 relative">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={
                 tab === 'transactions'
-                  ? 'Filter Terminal ID, Reference, or Tx Hash...'
-                  : 'Filter Journal ID, Account Ref, or Direction...'
+                  ? tr('Filter Terminal ID, Reference, or Tx Hash...', 'تصفية برقم المحطة أو المرجع أو التجزئة...')
+                  : tr('Filter Journal ID, Account Ref, or Direction...', 'تصفية برقم اليومية أو الحساب أو الاتجاه...')
               }
-              className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg pl-9 pr-3 py-2 text-xs font-mono text-slate-100 placeholder:text-slate-500 focus:outline-none"
+              className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg ps-9 pe-3 py-2 text-xs font-mono text-[#0F172A] placeholder:text-slate-400 focus:outline-none"
             />
           </div>
 
@@ -340,19 +343,19 @@ export function LedgerAuditView({
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as 'ALL' | TransactionType)}
               aria-label="Filter by transaction type"
-              className="bg-[#05070A] border border-white/[0.12] rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-[#00E5FF] focus:outline-none"
+              className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-3 py-2 text-xs text-[#0F172A] focus:border-[#1E40AF] focus:outline-none"
             >
-              <option value="ALL">All Types</option>
-              <option value="internal_transfer">Internal Transfer</option>
-              <option value="sub_allocation">Sub-Allocation</option>
-              <option value="invoice_payment">Invoice Payment</option>
-              <option value="trading_funding">Trading Funding</option>
-              <option value="deposit">Deposit</option>
-              <option value="withdrawal">Withdrawal</option>
+              <option value="ALL">{tr('All Types', 'كل الأنواع')}</option>
+              <option value="internal_transfer">{tr('Internal Transfer', 'تحويل داخلي')}</option>
+              <option value="sub_allocation">{tr('Sub-Allocation', 'تخصيص فرعي')}</option>
+              <option value="invoice_payment">{tr('Invoice Payment', 'دفع فاتورة')}</option>
+              <option value="trading_funding">{tr('Trading Funding', 'تمويل التداول')}</option>
+              <option value="deposit">{tr('Deposit', 'إيداع')}</option>
+              <option value="withdrawal">{tr('Withdrawal', 'سحب')}</option>
             </select>
           ) : (
-            <div className="bg-[#05070A] border border-white/[0.07] rounded-lg px-3 py-2 text-xs text-slate-500 flex items-center">
-              Signed Zero-Sum Postings
+            <div className="bg-[#F4F7FA] border border-[#E2E8F0] rounded-lg px-3 py-2 text-xs text-slate-600 flex items-center">
+              {tr('Signed Zero-Sum Postings', 'قيود موقعة صفرية المجموع')}
             </div>
           )}
 
@@ -361,9 +364,9 @@ export function LedgerAuditView({
               value={assetFilter}
               onChange={(e) => setAssetFilter(e.target.value as 'ALL' | AssetSymbol)}
               aria-label="Filter by asset"
-              className="bg-[#05070A] border border-white/[0.12] rounded-lg px-2.5 py-2 text-xs text-slate-200 focus:border-[#00E5FF] focus:outline-none"
+              className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-2.5 py-2 text-xs text-[#0F172A] focus:border-[#1E40AF] focus:outline-none"
             >
-              <option value="ALL">All Assets</option>
+              <option value="ALL">{tr('All Assets', 'كل الأصول')}</option>
               <option value="USDT">USDT</option>
               <option value="BTC">BTC</option>
               <option value="ETH">ETH</option>
@@ -373,12 +376,12 @@ export function LedgerAuditView({
               value={dateRange}
               onChange={(e) => setDateRange(e.target.value as 'ALL' | '24H' | '7D' | '30D')}
               aria-label="Filter by date range"
-              className="bg-[#05070A] border border-white/[0.12] rounded-lg px-2.5 py-2 text-xs text-slate-200 focus:border-[#00E5FF] focus:outline-none"
+              className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-2.5 py-2 text-xs text-[#0F172A] focus:border-[#1E40AF] focus:outline-none"
             >
-              <option value="ALL">All Time</option>
-              <option value="24H">Last 24h</option>
-              <option value="7D">Last 7d</option>
-              <option value="30D">Last 30d</option>
+              <option value="ALL">{tr('All Time', 'كل الأوقات')}</option>
+              <option value="24H">{tr('Last 24h', 'آخر 24 ساعة')}</option>
+              <option value="7D">{tr('Last 7d', 'آخر 7 أيام')}</option>
+              <option value="30D">{tr('Last 30d', 'آخر 30 يوماً')}</option>
             </select>
           </div>
 
@@ -387,9 +390,9 @@ export function LedgerAuditView({
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as 'ALL' | TransactionStatus)}
               aria-label="Filter by status"
-              className="bg-[#05070A] border border-white/[0.12] rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-[#00E5FF] focus:outline-none"
+              className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-3 py-2 text-xs text-[#0F172A] focus:border-[#1E40AF] focus:outline-none"
             >
-              <option value="ALL">All Statuses</option>
+              <option value="ALL">{tr('All Statuses', 'كل الحالات')}</option>
               <option value="detected">Detected</option>
               <option value="pending">Pending</option>
               <option value="completed">Completed</option>
@@ -401,90 +404,92 @@ export function LedgerAuditView({
       </div>
 
       {/* High-Density Data Grid */}
-      <div className="bg-[#0B0F16] border border-white/[0.08] rounded-xl overflow-hidden">
+      <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden shadow-xs">
         {tab === 'transactions' ? (
           filteredTransactions.length === 0 ? (
             <div className="py-16 text-center space-y-3">
-              <p className="text-sm text-slate-300">No ledger transactions match the active filters.</p>
+              <p className="text-sm text-slate-600">
+                {tr('No ledger transactions match the active filters.', 'لا توجد معاملات تطابق عوامل التصفية.')}
+              </p>
               <button
                 type="button"
                 onClick={handleResetFilters}
-                className="px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] rounded-lg"
+                className="px-4 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg"
               >
-                Clear All Filters
+                {tr('Clear All Filters', 'مسح كل الفلاتر')}
               </button>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-start border-collapse">
                 <thead>
-                  <tr className="border-b border-white/[0.08] text-[11px] font-medium text-slate-400 bg-[#05070A]/60">
-                    <th className="py-2.5 px-4">Reference</th>
-                    <th className="py-2.5 px-3">Timestamp</th>
-                    <th className="py-2.5 px-3">Terminal</th>
-                    <th className="py-2.5 px-3">Counterparty</th>
-                    <th className="py-2.5 px-3">Type / Rail</th>
-                    <th className="py-2.5 px-3 text-right">Amount</th>
-                    <th className="py-2.5 px-3 text-right">Fee</th>
-                    <th className="py-2.5 px-3">Status</th>
-                    <th className="py-2.5 px-4 text-right">Tx Hash</th>
+                  <tr className="border-b border-[#E2E8F0] text-[11px] font-semibold text-[#0F172A] bg-[#F8FAFC]">
+                    <th className="py-2.5 px-4 text-start">{tr('Reference', 'المرجع')}</th>
+                    <th className="py-2.5 px-3 text-start">{tr('Timestamp', 'الوقت')}</th>
+                    <th className="py-2.5 px-3 text-start">{tr('Terminal', 'المحطة')}</th>
+                    <th className="py-2.5 px-3 text-start">{tr('Counterparty', 'الطرف المقابل')}</th>
+                    <th className="py-2.5 px-3 text-start">{tr('Type / Rail', 'النوع / الشبكة')}</th>
+                    <th className="py-2.5 px-3 text-end">{tr('Amount', 'المبلغ')}</th>
+                    <th className="py-2.5 px-3 text-end">{tr('Fee', 'الرسوم')}</th>
+                    <th className="py-2.5 px-3 text-start">{tr('Status', 'الحالة')}</th>
+                    <th className="py-2.5 px-4 text-end">{tr('Tx Hash', 'تجزئة المعاملة')}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/[0.05] text-xs">
+                <tbody className="divide-y divide-[#E2E8F0] text-xs bg-white">
                   {filteredTransactions.map((tx) => (
-                    <tr key={tx.id} className="hover:bg-white/[0.025] transition-colors">
-                      <td className="py-2.5 px-4 font-mono text-slate-200 whitespace-nowrap">
+                    <tr key={tx.id} className="hover:bg-[#F8FAFC] transition-colors">
+                      <td className="py-2.5 px-4 font-mono tabular-nums text-[#0F172A] font-medium whitespace-nowrap">
                         {tx.reference}
                       </td>
-                      <td className="py-2.5 px-3 font-mono tabular-nums text-slate-400 whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap">
                         {formatTimestamp(tx.created_at)}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-slate-300 whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-mono tabular-nums text-slate-700 whitespace-nowrap">
                         {resolveTerminalCode(terminals, tx.terminalUuid)}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-[#00E5FF] whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-mono tabular-nums text-[#1E40AF] font-medium whitespace-nowrap">
                         {truncateHash(tx.counterparty_terminal, 14, 6)}
                       </td>
-                      <td className="py-2.5 px-3 text-slate-300 whitespace-nowrap">
+                      <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
                         <span className="capitalize">{tx.type.replace('_', ' ')}</span>
-                        <span className="text-slate-600 mx-1.5">·</span>
-                        <span className="text-slate-400">
+                        <span className="text-slate-400 mx-1.5">·</span>
+                        <span className="text-slate-500">
                           {NETWORK_LABELS[tx.network] ?? tx.network}
                         </span>
                       </td>
-                      <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-100 font-medium whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-mono tabular-nums text-end text-[#0F172A] font-semibold whitespace-nowrap">
                         {formatAssetAmount(tx.amount, tx.asset)}{' '}
-                        <span className="text-slate-400">{tx.asset}</span>
+                        <span className="text-slate-500 font-normal">{tx.asset}</span>
                       </td>
-                      <td className="py-2.5 px-3 font-mono tabular-nums text-right text-slate-400 whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-mono tabular-nums text-end text-slate-500 whitespace-nowrap">
                         {tx.fee === 0 ? '0.00' : `${tx.fee} ${tx.asset}`}
                       </td>
                       <td className="py-2.5 px-3 whitespace-nowrap">
                         <span
-                          className={`font-medium capitalize ${
+                          className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[11px] font-semibold capitalize ${
                             tx.status === 'completed'
-                              ? 'text-emerald-400'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                               : tx.status === 'pending' || tx.status === 'detected'
-                                ? 'text-amber-400'
-                                : 'text-red-400'
+                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                : 'bg-red-50 text-red-700 border-red-200'
                           }`}
                         >
                           {tx.status}
                         </span>
                       </td>
-                      <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                      <td className="py-2.5 px-4 text-end whitespace-nowrap">
                         {tx.tx_hash ? (
                           <button
                             type="button"
-                            onClick={() => onCopy(tx.tx_hash, 'Copied transaction hash')}
-                            className="inline-flex items-center gap-1 font-mono text-slate-400 hover:text-[#00E5FF] transition-colors"
+                            onClick={() => onCopy(tx.tx_hash, tr('Copied transaction hash', 'تم نسخ تجزئة المعاملة'))}
+                            className="inline-flex items-center gap-1 font-mono tabular-nums text-slate-600 hover:text-[#1E40AF] transition-colors"
                             title={tx.tx_hash}
                           >
                             {truncateHash(tx.tx_hash, 8, 6)}
                             <Copy className="w-3 h-3" />
                           </button>
                         ) : (
-                          <span className="font-mono text-slate-500">Pending broadcast</span>
+                          <span className="font-mono text-slate-400">{tr('Pending broadcast', 'بانتظار البث')}</span>
                         )}
                       </td>
                     </tr>
@@ -495,69 +500,71 @@ export function LedgerAuditView({
           )
         ) : filteredPostings.length === 0 ? (
           <div className="py-16 text-center space-y-3">
-            <p className="text-sm text-slate-300">No double-entry postings match your filter.</p>
+            <p className="text-sm text-slate-600">
+              {tr('No double-entry postings match your filter.', 'لا توجد قيود مزدوجة تطابق التصفية.')}
+            </p>
             <button
               type="button"
               onClick={handleResetFilters}
-              className="px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] rounded-lg"
+              className="px-4 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg"
             >
-              Clear Filters
+              {tr('Clear Filters', 'مسح الفلاتر')}
             </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-start border-collapse">
               <thead>
-                <tr className="border-b border-white/[0.08] text-[11px] font-medium text-slate-400 bg-[#05070A]/60">
-                  <th className="py-2.5 px-4">Journal ID</th>
-                  <th className="py-2.5 px-3">Timestamp</th>
-                  <th className="py-2.5 px-3">Account Ref</th>
-                  <th className="py-2.5 px-3">Direction</th>
-                  <th className="py-2.5 px-4 text-right">Signed Amount</th>
+                <tr className="border-b border-[#E2E8F0] text-[11px] font-semibold text-[#0F172A] bg-[#F8FAFC]">
+                  <th className="py-2.5 px-4 text-start">{tr('Journal ID', 'معرف اليومية')}</th>
+                  <th className="py-2.5 px-3 text-start">{tr('Timestamp', 'الوقت')}</th>
+                  <th className="py-2.5 px-3 text-start">{tr('Account Ref', 'مرجع الحساب')}</th>
+                  <th className="py-2.5 px-3 text-start">{tr('Direction', 'الاتجاه')}</th>
+                  <th className="py-2.5 px-4 text-end">{tr('Signed Amount', 'المبلغ الموقع')}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.05] text-xs">
+              <tbody className="divide-y divide-[#E2E8F0] text-xs bg-white">
                 {filteredPostings.map((lp) => {
                   const isCredit = lp.amount > 0;
                   const direction = isCredit ? 'CREDIT' : 'DEBIT';
                   return (
-                    <tr key={lp.id} className="hover:bg-white/[0.025] transition-colors">
-                      <td className="py-2.5 px-4 font-mono text-slate-200 whitespace-nowrap">
+                    <tr key={lp.id} className="hover:bg-[#F8FAFC] transition-colors">
+                      <td className="py-2.5 px-4 font-mono tabular-nums text-[#0F172A] whitespace-nowrap">
                         <button
                           type="button"
-                          onClick={() => onCopy(lp.journal_id, 'Copied Journal UUID')}
-                          className="inline-flex items-center gap-1.5 hover:text-[#00E5FF] transition-colors"
+                          onClick={() => onCopy(lp.journal_id, tr('Copied Journal UUID', 'تم نسخ معرف اليومية'))}
+                          className="inline-flex items-center gap-1.5 hover:text-[#1E40AF] transition-colors"
                           title={lp.journal_id}
                         >
                           {truncateHash(lp.journal_id, 8, 4)}
-                          <Copy className="w-3 h-3 text-slate-500" />
+                          <Copy className="w-3 h-3 text-slate-400" />
                         </button>
                       </td>
-                      <td className="py-2.5 px-3 font-mono tabular-nums text-slate-400 whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap">
                         {formatTimestamp(lp.created_at)}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-[#00E5FF] whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-mono tabular-nums text-[#1E40AF] font-medium whitespace-nowrap">
                         {lp.account_ref}
                       </td>
                       <td className="py-2.5 px-3 font-mono font-semibold whitespace-nowrap">
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] border ${
                             isCredit
-                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
-                              : 'bg-amber-500/10 text-amber-400 border-amber-500/25'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-800 border-amber-200'
                           }`}
                         >
                           {direction}
                         </span>
                       </td>
                       <td
-                        className={`py-2.5 px-4 font-mono tabular-nums text-right font-medium whitespace-nowrap ${
-                          isCredit ? 'text-emerald-400' : 'text-amber-300'
+                        className={`py-2.5 px-4 font-mono tabular-nums text-end font-semibold whitespace-nowrap ${
+                          isCredit ? 'text-emerald-700' : 'text-amber-800'
                         }`}
                       >
                         {isCredit ? '+' : '-'}
                         {formatAssetAmount(Math.abs(lp.amount), lp.asset)}{' '}
-                        <span className="text-slate-400">{lp.asset}</span>
+                        <span className="text-slate-500 font-normal">{lp.asset}</span>
                       </td>
                     </tr>
                   );

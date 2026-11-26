@@ -5,7 +5,6 @@ import {
   FileText,
   Plus,
   QrCode,
-  ShieldCheck,
   Zap,
   X,
   CheckCircle2,
@@ -16,6 +15,7 @@ import type { AssetSymbol, InvoiceRecord, TerminalRecord, WalletBalance } from '
 import { resolveTerminalCode } from '../lib/ledgerEngine';
 import { formatAssetAmount, formatTimestamp } from '../lib/format';
 import { TwoFactorModal } from './TwoFactorModal';
+import { useLocale } from '../context/LocaleContext';
 
 interface InvoicesViewProps {
   terminals: TerminalRecord[];
@@ -42,6 +42,7 @@ export function InvoicesView({
   onCopy,
   onToast,
 }: InvoicesViewProps) {
+  const { tr } = useLocale();
   const masterTerminal = terminals.find((t) => t.type === 'master') ?? terminals[0];
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [asset, setAsset] = useState<AssetSymbol>('USDT');
@@ -53,10 +54,7 @@ export function InvoicesView({
   );
   const [isCreating, setIsCreating] = useState(false);
 
-  // QR Modal inspection state
   const [inspectingInvoice, setInspectingInvoice] = useState<InvoiceRecord | null>(null);
-
-  // Pay Invoice 2FA state
   const [payingInvoice, setPayingInvoice] = useState<InvoiceRecord | null>(null);
   const [isPaying, setIsPaying] = useState(false);
 
@@ -64,7 +62,11 @@ export function InvoicesView({
     e.preventDefault();
     const num = Number(amount);
     if (!masterTerminal || Number.isNaN(num) || num <= 0) {
-      onToast('Invalid invoice amount', 'Enter a positive numeric amount.', 'error');
+      onToast(
+        tr('Invalid invoice amount', 'مبلغ الفاتورة غير صالح'),
+        tr('Enter a positive numeric amount.', 'أدخل مبلغاً رقمياً موجباً.'),
+        'error'
+      );
       return;
     }
     const payerTerm = terminals.find((t) => t.id === payerTerminalUuid);
@@ -80,9 +82,17 @@ export function InvoicesView({
       });
       setShowCreateModal(false);
       setAmount('10000');
-      onToast('Invoice created & signed', 'Signed QR URI generated successfully.', 'success');
+      onToast(
+        tr('Invoice created & signed', 'تم إنشاء وتوقيع الفاتورة'),
+        tr('Signed QR URI generated successfully.', 'تم إنشاء رابط QR الموقع بنجاح.'),
+        'success'
+      );
     } catch (err) {
-      onToast('Failed to create invoice', err instanceof Error ? err.message : 'Error', 'error');
+      onToast(
+        tr('Failed to create invoice', 'فشل إنشاء الفاتورة'),
+        err instanceof Error ? err.message : 'Error',
+        'error'
+      );
     } finally {
       setIsCreating(false);
     }
@@ -105,12 +115,12 @@ export function InvoicesView({
       setPayingInvoice(null);
       setInspectingInvoice(null);
       onToast(
-        'Invoice settled successfully',
+        tr('Invoice settled successfully', 'تمت تسوية الفاتورة بنجاح'),
         `${formatAssetAmount(payingInvoice.amount, payingInvoice.asset)} ${payingInvoice.asset} transferred via ledger.`,
         'success'
       );
     } catch (err) {
-      onToast('Payment failed', err instanceof Error ? err.message : 'Error', 'error');
+      onToast(tr('Payment failed', 'فشل الدفع'), err instanceof Error ? err.message : 'Error', 'error');
     } finally {
       setIsPaying(false);
     }
@@ -119,68 +129,74 @@ export function InvoicesView({
   return (
     <div className="space-y-6">
       {/* Header bar */}
-      <div className="bg-[#0B0F16] border border-white/[0.08] rounded-xl p-6 flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 flex flex-wrap items-center justify-between gap-4 shadow-xs">
         <div>
-          <h2 className="text-base font-semibold text-slate-100">
-            Payment Requests & Signed QR Invoices
+          <h2 className="text-base font-semibold text-[#0F172A]">
+            {tr('Payment Requests & Signed QR Invoices', 'طلبات الدفع وفواتير QR الموقعة')}
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Cryptographically signed payment URIs with automated double-entry ledger settlement
+          <p className="text-xs text-slate-500 mt-0.5">
+            {tr(
+              'Cryptographically signed payment URIs with automated double-entry ledger settlement',
+              'روابط دفع موقعة تشفيرياً مع تسوية آلية عبر دفتر القيد المزدوج'
+            )}
           </p>
         </div>
         <button
           type="button"
           onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg transition-colors whitespace-nowrap"
+          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg transition-colors whitespace-nowrap shadow-xs"
         >
           <Plus className="w-3.5 h-3.5" />
-          Create Signed Invoice
+          {tr('Create Signed Invoice', 'إنشاء فاتورة موقعة')}
         </button>
       </div>
 
       {/* Invoices Table */}
-      <div className="bg-[#0B0F16] border border-white/[0.08] rounded-xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-white/[0.08]">
-          <h3 className="text-sm font-semibold text-slate-100">Active & Settled Invoices</h3>
+      <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden shadow-xs">
+        <div className="px-5 py-4 border-b border-[#E2E8F0]">
+          <h3 className="text-sm font-semibold text-[#0F172A]">
+            {tr('Active & Settled Invoices', 'الفواتير النشطة والمسواة')}
+          </h3>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-start border-collapse">
             <thead>
-              <tr className="border-b border-white/[0.08] text-[11px] font-medium text-slate-400 bg-[#05070A]/60">
-                <th className="py-2.5 px-4">Invoice #</th>
-                <th className="py-2.5 px-3">Description</th>
-                <th className="py-2.5 px-3">Recipient Terminal</th>
-                <th className="py-2.5 px-3 text-right">Amount</th>
-                <th className="py-2.5 px-3">Expires</th>
-                <th className="py-2.5 px-3">Status</th>
-                <th className="py-2.5 px-4 text-right">Actions</th>
+              <tr className="border-b border-[#E2E8F0] text-[11px] font-semibold text-[#0F172A] bg-[#F8FAFC]">
+                <th className="py-2.5 px-4 text-start">{tr('Invoice #', 'رقم الفاتورة')}</th>
+                <th className="py-2.5 px-3 text-start">{tr('Description', 'الوصف')}</th>
+                <th className="py-2.5 px-3 text-start">{tr('Recipient Terminal', 'المحطة المستلمة')}</th>
+                <th className="py-2.5 px-3 text-end">{tr('Amount', 'المبلغ')}</th>
+                <th className="py-2.5 px-3 text-start">{tr('Expires', 'تنتهي في')}</th>
+                <th className="py-2.5 px-3 text-start">{tr('Status', 'الحالة')}</th>
+                <th className="py-2.5 px-4 text-end">{tr('Actions', 'الإجراءات')}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/[0.05] text-xs">
+            <tbody className="divide-y divide-[#E2E8F0] text-xs bg-white">
               {invoices.map((inv) => (
-                <tr key={inv.id} className="hover:bg-white/[0.025] transition-colors">
-                  <td className="py-3 px-4 font-mono font-semibold text-slate-200 whitespace-nowrap">
+                <tr key={inv.id} className="hover:bg-[#F8FAFC] transition-colors">
+                  <td className="py-3 px-4 font-mono tabular-nums font-semibold text-[#0F172A] whitespace-nowrap">
                     {inv.invoice_number}
                   </td>
-                  <td className="py-3 px-3 text-slate-300 max-w-xs truncate">{inv.description}</td>
-                  <td className="py-3 px-3 font-mono text-[#00E5FF] whitespace-nowrap">
+                  <td className="py-3 px-3 text-slate-700 max-w-xs truncate">{inv.description}</td>
+                  <td className="py-3 px-3 font-mono tabular-nums text-[#1E40AF] font-medium whitespace-nowrap">
                     {resolveTerminalCode(terminals, inv.terminalUuid)}
                   </td>
-                  <td className="py-3 px-3 font-mono tabular-nums text-right text-slate-100 font-medium whitespace-nowrap">
-                    {formatAssetAmount(inv.amount, inv.asset)} <span className="text-slate-400">{inv.asset}</span>
+                  <td className="py-3 px-3 font-mono tabular-nums text-end text-[#0F172A] font-semibold whitespace-nowrap">
+                    {formatAssetAmount(inv.amount, inv.asset)}{' '}
+                    <span className="text-slate-500 font-normal">{inv.asset}</span>
                   </td>
-                  <td className="py-3 px-3 font-mono text-slate-400 whitespace-nowrap">
+                  <td className="py-3 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap">
                     {formatTimestamp(inv.expires_at)}
                   </td>
                   <td className="py-3 px-3 whitespace-nowrap">
                     <span
-                      className={`inline-flex items-center gap-1 font-medium capitalize px-2 py-0.5 rounded text-[11px] ${
+                      className={`inline-flex items-center gap-1 font-semibold capitalize px-2 py-0.5 rounded-md text-[11px] border ${
                         inv.status === 'paid'
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                           : inv.status === 'open'
-                            ? 'bg-[#00E5FF]/10 text-[#00E5FF] border border-[#00E5FF]/20'
-                            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            ? 'bg-blue-50 text-[#1E40AF] border-blue-200'
+                            : 'bg-red-50 text-red-700 border-red-200'
                       }`}
                     >
                       {inv.status === 'paid' && <CheckCircle2 className="w-3 h-3" />}
@@ -189,25 +205,27 @@ export function InvoicesView({
                       {inv.status}
                     </span>
                   </td>
-                  <td className="py-3 px-4 text-right whitespace-nowrap space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => setInspectingInvoice(inv)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-200 bg-white/[0.05] hover:bg-white/[0.10] border border-white/[0.08] rounded-md transition-colors"
-                    >
-                      <QrCode className="w-3 h-3 text-[#00E5FF]" />
-                      QR / URI
-                    </button>
-                    {inv.status === 'open' && (
+                  <td className="py-3 px-4 text-end whitespace-nowrap">
+                    <div className="inline-flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setPayingInvoice(inv)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-md transition-colors"
+                        onClick={() => setInspectingInvoice(inv)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[#0F172A] bg-[#F4F7FA] hover:bg-slate-200/70 border border-[#E2E8F0] rounded-md transition-colors"
                       >
-                        <Zap className="w-3 h-3" />
-                        Simulate Pay
+                        <QrCode className="w-3 h-3 text-[#1E40AF]" />
+                        QR / URI
                       </button>
-                    )}
+                      {inv.status === 'open' && (
+                        <button
+                          type="button"
+                          onClick={() => setPayingInvoice(inv)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-md transition-colors"
+                        >
+                          <Zap className="w-3 h-3" />
+                          {tr('Simulate Pay', 'محاكاة الدفع')}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -218,31 +236,35 @@ export function InvoicesView({
 
       {/* Create Invoice Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-[#0B0F16] border border-white/[0.1] rounded-xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0F172A]/65 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white border border-[#E2E8F0] rounded-xl shadow-2xl overflow-hidden">
+            <div className="cobalt-hero-surface flex items-center justify-between px-6 py-4 text-white border-b border-[#24489B]">
               <div className="flex items-center gap-2.5">
-                <FileText className="w-4 h-4 text-[#00E5FF]" />
-                <h3 className="text-sm font-semibold text-slate-100">Create Signed Invoice</h3>
+                <FileText className="w-4 h-4 text-[#D6FF3D]" />
+                <h3 className="text-sm font-semibold text-white">
+                  {tr('Create Signed Invoice', 'إنشاء فاتورة موقعة')}
+                </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="text-slate-400 hover:text-white p-1"
-                aria-label="Close modal"
+                className="text-blue-100 hover:text-white p-1"
+                aria-label={tr('Close modal', 'إغلاق النافذة')}
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleCreateSubmit} className="p-6 space-y-4 bg-white">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-300">Asset</label>
+                  <label className="block text-xs font-semibold text-[#0F172A]">
+                    {tr('Asset', 'الأصل')}
+                  </label>
                   <select
                     value={asset}
                     onChange={(e) => setAsset(e.target.value as AssetSymbol)}
-                    className="w-full bg-[#05070A] border border-white/[0.12] rounded-lg px-3 py-2 text-xs font-mono text-slate-100 focus:outline-none"
+                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3 py-2 text-xs font-mono text-[#0F172A] focus:outline-none"
                   >
                     <option value="USDT">USDT</option>
                     <option value="BTC">BTC</option>
@@ -250,44 +272,52 @@ export function InvoicesView({
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-300">Amount</label>
+                  <label className="block text-xs font-semibold text-[#0F172A]">
+                    {tr('Amount', 'المبلغ')}
+                  </label>
                   <input
                     type="number"
                     step="any"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    className="w-full bg-[#05070A] border border-white/[0.12] rounded-lg px-3 py-2 text-xs font-mono text-slate-100 focus:outline-none"
+                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3 py-2 text-xs font-mono tabular-nums text-[#0F172A] focus:outline-none"
                   />
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Description / Purpose</label>
+                <label className="block text-xs font-semibold text-[#0F172A]">
+                  {tr('Description / Purpose', 'الوصف / الغرض')}
+                </label>
                 <input
                   type="text"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="e.g. Q4 Settlement Tranche"
-                  className="w-full bg-[#05070A] border border-white/[0.12] rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none"
+                  className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3 py-2 text-xs text-[#0F172A] placeholder:text-slate-400 focus:outline-none"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-300">Expiry (Hours)</label>
+                  <label className="block text-xs font-semibold text-[#0F172A]">
+                    {tr('Expiry (Hours)', 'الصلاحية (ساعات)')}
+                  </label>
                   <input
                     type="number"
                     value={expiryHours}
                     onChange={(e) => setExpiryHours(e.target.value)}
-                    className="w-full bg-[#05070A] border border-white/[0.12] rounded-lg px-3 py-2 text-xs font-mono text-slate-100 focus:outline-none"
+                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3 py-2 text-xs font-mono tabular-nums text-[#0F172A] focus:outline-none"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-slate-300">Target Payer Terminal</label>
+                  <label className="block text-xs font-semibold text-[#0F172A]">
+                    {tr('Target Payer Terminal', 'المحطة الدافعة المستهدفة')}
+                  </label>
                   <select
                     value={payerTerminalUuid}
                     onChange={(e) => setPayerTerminalUuid(e.target.value)}
-                    className="w-full bg-[#05070A] border border-white/[0.12] rounded-lg px-3 py-2 text-xs font-mono text-slate-100 focus:outline-none"
+                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3 py-2 text-xs font-mono text-[#0F172A] focus:outline-none"
                   >
                     {terminals.map((t) => (
                       <option key={t.id} value={t.id}>
@@ -298,20 +328,22 @@ export function InvoicesView({
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-white/[0.08]">
+              <div className="flex justify-end gap-3 pt-4 border-t border-[#E2E8F0]">
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 text-xs text-slate-300 bg-white/[0.05] rounded-lg"
+                  className="px-4 py-2 text-xs font-medium text-slate-600 bg-[#F4F7FA] hover:bg-slate-200/70 border border-[#E2E8F0] rounded-lg"
                 >
-                  Cancel
+                  {tr('Cancel', 'إلغاء')}
                 </button>
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="px-5 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg"
+                  className="px-5 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg shadow-xs"
                 >
-                  {isCreating ? 'Signing & Creating...' : 'Generate Signed QR'}
+                  {isCreating
+                    ? tr('Signing & Creating...', 'جاري التوقيع والإنشاء...')
+                    : tr('Generate Signed QR', 'إنشاء رمز QR موقع')}
                 </button>
               </div>
             </form>
@@ -321,35 +353,42 @@ export function InvoicesView({
 
       {/* QR Code & Signed URI Modal */}
       {inspectingInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="w-full max-w-sm bg-[#0B0F16] border border-white/[0.1] rounded-xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0F172A]/65 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-white border border-[#E2E8F0] rounded-xl shadow-2xl overflow-hidden">
+            <div className="cobalt-hero-surface flex items-center justify-between px-5 py-4 text-white border-b border-[#24489B]">
               <div>
-                <h3 className="text-sm font-semibold text-slate-100">
+                <h3 className="text-sm font-semibold text-white">
                   {inspectingInvoice.invoice_number}
                 </h3>
-                <p className="text-xs text-slate-400">{inspectingInvoice.description}</p>
+                <p className="text-xs text-blue-100/85">{inspectingInvoice.description}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setInspectingInvoice(null)}
-                className="text-slate-400 hover:text-white p-1"
-                aria-label="Close modal"
+                className="text-blue-100 hover:text-white p-1"
+                aria-label={tr('Close modal', 'إغلاق النافذة')}
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-6 flex flex-col items-center gap-5">
-              <div className="p-4 bg-white rounded-xl">
-                <QRCodeSVG value={inspectingInvoice.signed_uri} size={180} level="M" bgColor="#FFFFFF" fgColor="#05070A" />
+            <div className="p-6 flex flex-col items-center gap-5 bg-white">
+              <div className="p-4 bg-white rounded-xl border border-[#E2E8F0] shadow-xs">
+                <QRCodeSVG
+                  value={inspectingInvoice.signed_uri}
+                  size={180}
+                  level="M"
+                  bgColor="#FFFFFF"
+                  fgColor="#0F172A"
+                />
               </div>
 
-              <div className="w-full space-y-1.5 text-center">
-                <p className="font-mono text-lg font-bold text-[#F5C542]">
-                  {formatAssetAmount(inspectingInvoice.amount, inspectingInvoice.asset)} {inspectingInvoice.asset}
+              <div className="w-full space-y-2 text-center">
+                <p className="font-mono tabular-nums text-lg font-bold text-[#1E40AF]">
+                  {formatAssetAmount(inspectingInvoice.amount, inspectingInvoice.asset)}{' '}
+                  {inspectingInvoice.asset}
                 </p>
-                <p className="text-[11px] font-mono text-slate-400 break-all bg-[#05070A] p-2.5 rounded border border-white/[0.07]">
+                <p className="text-[11px] font-mono text-slate-600 break-all bg-[#F4F7FA] p-2.5 rounded-lg border border-[#E2E8F0]">
                   {inspectingInvoice.signed_uri}
                 </p>
               </div>
@@ -357,11 +396,16 @@ export function InvoicesView({
               <div className="grid grid-cols-2 gap-3 w-full">
                 <button
                   type="button"
-                  onClick={() => onCopy(inspectingInvoice.signed_uri, 'Copied signed invoice URI')}
-                  className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-medium text-slate-100 bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] rounded-lg"
+                  onClick={() =>
+                    onCopy(
+                      inspectingInvoice.signed_uri,
+                      tr('Copied signed invoice URI', 'تم نسخ رابط الفاتورة الموقع')
+                    )
+                  }
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-medium text-[#0F172A] bg-[#F4F7FA] hover:bg-slate-200/70 border border-[#E2E8F0] rounded-lg"
                 >
-                  <Copy className="w-3.5 h-3.5 text-[#00E5FF]" />
-                  Copy URI
+                  <Copy className="w-3.5 h-3.5 text-[#1E40AF]" />
+                  {tr('Copy URI', 'نسخ الرابط')}
                 </button>
                 {inspectingInvoice.status === 'open' && (
                   <button
@@ -369,10 +413,10 @@ export function InvoicesView({
                     onClick={() => {
                       setPayingInvoice(inspectingInvoice);
                     }}
-                    className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg"
+                    className="flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg shadow-xs"
                   >
                     <Zap className="w-3.5 h-3.5" />
-                    Pay Now
+                    {tr('Pay Now', 'ادفع الآن')}
                   </button>
                 )}
               </div>
@@ -384,28 +428,32 @@ export function InvoicesView({
       {/* 2FA Modal for Paying Invoice */}
       <TwoFactorModal
         open={Boolean(payingInvoice)}
-        title="Authorize Invoice Settlement"
-        subtitle={`Settle ${payingInvoice?.invoice_number} via double-entry ledger`}
-        confirmLabel="Confirm & Pay Invoice"
+        title={tr('Authorize Invoice Settlement', 'اعتماد تسوية الفاتورة')}
+        subtitle={`${tr('Settle', 'تسوية')} ${payingInvoice?.invoice_number} ${tr('via double-entry ledger', 'عبر دفتر القيد المزدوج')}`}
+        confirmLabel={tr('Confirm & Pay Invoice', 'تأكيد ودفع الفاتورة')}
         isSubmitting={isPaying}
         onClose={() => setPayingInvoice(null)}
         onConfirm={handleConfirmPayInvoice}
         summaryRows={[
-          { label: 'Invoice #', value: payingInvoice?.invoice_number ?? '', mono: true },
-          { label: 'Description', value: payingInvoice?.description ?? '' },
+          { label: tr('Invoice #', 'رقم الفاتورة'), value: payingInvoice?.invoice_number ?? '', mono: true },
+          { label: tr('Description', 'الوصف'), value: payingInvoice?.description ?? '' },
           {
-            label: 'Recipient Terminal',
+            label: tr('Recipient Terminal', 'المحطة المستلمة'),
             value: resolveTerminalCode(terminals, payingInvoice?.terminalUuid),
             mono: true,
             highlight: 'cyan',
           },
           {
-            label: 'Total Amount',
+            label: tr('Total Amount', 'المبلغ الإجمالي'),
             value: `${formatAssetAmount(payingInvoice?.amount ?? 0, payingInvoice?.asset ?? 'USDT')} ${payingInvoice?.asset ?? 'USDT'}`,
             mono: true,
             highlight: 'gold',
           },
-          { label: 'Settlement Fee', value: '$0.00 (Zero-Fee Internal)', highlight: 'emerald' },
+          {
+            label: tr('Settlement Fee', 'رسوم التسوية'),
+            value: tr('$0.00 (Zero-Fee Internal)', '$0.00 (داخلي بدون رسوم)'),
+            highlight: 'emerald',
+          },
         ]}
       />
     </div>

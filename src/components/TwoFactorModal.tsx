@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useTwoFactorRuntime } from '../context/TwoFactorContext';
+import { useLocale } from '../context/LocaleContext';
 import {
   clearDemoTwoFactorGuard,
   createTotpEnrollmentMaterial,
@@ -59,22 +60,19 @@ export function TwoFactorModal({
   onConfirm,
 }: TwoFactorModalProps) {
   const { authMode, userEmail, onRecordSimulatedAudit } = useTwoFactorRuntime();
+  const { tr } = useLocale();
   const isLiveMode = authMode === 'supabase';
 
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // Live Supabase TOTP state
   const [livePhase, setLivePhase] = useState<LivePhase>('loading');
   const [enrollmentMaterial, setEnrollmentMaterial] = useState<TotpEnrollmentMaterial | null>(null);
   const [copiedSecret, setCopiedSecret] = useState(false);
 
-  // Shared lockout / attempts state
   const [lockedRemainingSeconds, setLockedRemainingSeconds] = useState(0);
   const [remainingAttempts, setRemainingAttempts] = useState<number>(TOTP_MAX_ATTEMPTS);
-
-  // Local Demo simulated challenge state (random per modal session, never hardcoded)
   const [demoChallenge, setDemoChallenge] = useState<string>('');
 
   const initializeModalState = async () => {
@@ -126,7 +124,6 @@ export function TwoFactorModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isLiveMode, userEmail]);
 
-  // Live countdown ticker when locked out
   useEffect(() => {
     if (!open || lockedRemainingSeconds <= 0) return;
     const timer = window.setInterval(() => {
@@ -169,7 +166,7 @@ export function TwoFactorModal({
 
     const clean = code.replace(/\s+/g, '');
     if (!/^\d{6}$/.test(clean)) {
-      setError('Enter a valid 6-digit authenticator code.');
+      setError(tr('Enter a valid 6-digit authenticator code.', 'أدخل رمز مصادقة صالحاً من 6 أرقام.'));
       return;
     }
 
@@ -226,14 +223,12 @@ export function TwoFactorModal({
         return;
       }
 
-      // Live Supabase Mode
       if (livePhase === 'enroll') {
         if (!enrollmentMaterial) {
           setError('Enrollment secret missing. Reload the authenticator setup.');
           return;
         }
         await enrollUserTotp(enrollmentMaterial.secret, clean);
-        // Immediately drop raw secret from client memory once encrypted on-server
         setEnrollmentMaterial(null);
         await onConfirm(clean);
         return;
@@ -257,31 +252,34 @@ export function TwoFactorModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0F172A]/65 backdrop-blur-sm overflow-y-auto">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="ntps-2fa-title"
-        className="w-full max-w-md bg-[#0B0F16] border border-white/[0.1] rounded-xl shadow-2xl overflow-hidden my-auto"
+        className="w-full max-w-md bg-white border border-[#E2E8F0] rounded-xl shadow-2xl overflow-hidden my-auto"
       >
-        <div className="flex items-start justify-between px-6 py-5 border-b border-white/[0.08]">
+        <div className="cobalt-hero-surface flex items-start justify-between px-6 py-5 text-white border-b border-[#24489B]">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-[#00E5FF]/10 border border-[#00E5FF]/25 flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-lg bg-[#D6FF3D] flex items-center justify-center shrink-0 shadow-sm">
               {isLiveMode && livePhase === 'enroll' ? (
-                <QrCode className="w-4 h-4 text-[#00E5FF]" />
+                <QrCode className="w-4 h-4 text-[#0F172A]" />
               ) : (
-                <ShieldCheck className="w-4 h-4 text-[#00E5FF]" />
+                <ShieldCheck className="w-4 h-4 text-[#0F172A]" />
               )}
             </div>
             <div>
-              <h3 id="ntps-2fa-title" className="text-base font-semibold text-slate-100">
+              <h3 id="ntps-2fa-title" className="text-base font-semibold text-white">
                 {isLiveMode && livePhase === 'enroll'
-                  ? 'Enroll Authenticator App (2FA)'
+                  ? tr('Enroll Authenticator App (2FA)', 'تسجيل تطبيق المصادقة (2FA)')
                   : title}
               </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-blue-100/85 mt-0.5">
                 {isLiveMode && livePhase === 'enroll'
-                  ? 'Scan QR code once, then enter the 6-digit TOTP code to activate & authorize'
+                  ? tr(
+                      'Scan QR code once, then enter the 6-digit TOTP code to activate & authorize',
+                      'امسح الرمز ثم أدخل رمز التفعيل المكون من 6 أرقام'
+                    )
                   : subtitle}
               </p>
             </div>
@@ -290,33 +288,33 @@ export function TwoFactorModal({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="text-slate-400 hover:text-slate-100 p-1 rounded-md transition-colors"
-            aria-label="Close confirmation dialog"
+            className="text-blue-100 hover:text-white p-1 rounded-md transition-colors"
+            aria-label={tr('Close confirmation dialog', 'إغلاق نافذة التأكيد')}
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="p-6 space-y-5 bg-white">
           {/* Summary Rows */}
-          <div className="bg-[#05070A] border border-white/[0.07] rounded-lg divide-y divide-white/[0.06]">
+          <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg divide-y divide-[#E2E8F0]">
             {summaryRows.map((row) => (
               <div
                 key={row.label}
                 className="flex items-center justify-between px-4 py-2.5 text-xs gap-4"
               >
-                <span className="text-slate-400 shrink-0">{row.label}</span>
+                <span className="text-slate-500 shrink-0">{row.label}</span>
                 <span
-                  className={`text-right truncate ${
+                  className={`text-end truncate ${
                     row.mono ? 'font-mono tabular-nums' : 'font-medium'
                   } ${
                     row.highlight === 'cyan'
-                      ? 'text-[#00E5FF]'
+                      ? 'text-[#1E40AF] font-semibold'
                       : row.highlight === 'gold'
-                        ? 'text-[#F5C542]'
+                        ? 'text-[#0F172A] font-bold'
                         : row.highlight === 'emerald'
-                          ? 'text-emerald-400'
-                          : 'text-slate-100'
+                          ? 'text-emerald-700 font-semibold'
+                          : 'text-[#0F172A]'
                   }`}
                 >
                   {row.value}
@@ -327,25 +325,27 @@ export function TwoFactorModal({
 
           {/* Mode-specific 2FA body */}
           {!isLiveMode ? (
-            <div className="rounded-lg border border-[#F5C542]/35 bg-[#F5C542]/10 p-3.5 space-y-2.5">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3.5 space-y-2.5">
               <div className="flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-[#F5C542] shrink-0 mt-0.5" />
+                <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold text-[#F5C542]">
-                    Simulated 2FA — Local Demo Mode
+                  <p className="text-xs font-semibold text-amber-900">
+                    {tr('Simulated 2FA — Local Demo Mode', 'تحقق ثنائي محاكى — وضع العرض المحلي')}
                   </p>
-                  <p className="text-[11px] leading-relaxed text-slate-300">
-                    Live server-side TOTP is disabled in Local Demo Mode. Type the one-time
-                    session code below manually to test verification and audit logging.
+                  <p className="text-[11px] leading-relaxed text-amber-800">
+                    {tr(
+                      'Live server-side TOTP is disabled in Local Demo Mode. Type the one-time session code below manually to test verification and audit logging.',
+                      'أدخل رمز الجلسة المؤقت أدناه يدوياً لاختبار التحقق وسجل التدقيق.'
+                    )}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center justify-between bg-[#05070A] border border-white/[0.08] rounded-md px-3 py-2">
+              <div className="flex items-center justify-between bg-white border border-amber-200 rounded-md px-3 py-2">
                 <div>
-                  <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
-                    Session Challenge Code
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500 block">
+                    {tr('Session Challenge Code', 'رمز التحدي للجلسة')}
                   </span>
-                  <span className="font-mono text-base font-semibold tracking-[0.35em] text-[#F5C542] tabular-nums">
+                  <span className="font-mono text-base font-bold tracking-[0.35em] text-[#1E40AF] tabular-nums">
                     {demoChallenge}
                   </span>
                 </div>
@@ -357,63 +357,65 @@ export function TwoFactorModal({
                     setError(null);
                   }}
                   disabled={busy || isLocked}
-                  className="inline-flex items-center gap-1.5 text-[11px] text-slate-300 hover:text-[#00E5FF] disabled:opacity-40 transition-colors"
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#1E40AF] hover:text-[#24489B] disabled:opacity-40 transition-colors"
                 >
                   <RefreshCw className="w-3 h-3" />
-                  New Code
+                  {tr('New Code', 'رمز جديد')}
                 </button>
               </div>
             </div>
           ) : livePhase === 'loading' ? (
-            <div className="py-8 flex flex-col items-center justify-center gap-2 text-xs text-slate-400">
-              <RefreshCw className="w-5 h-5 text-[#00E5FF] animate-spin" />
-              <span>Checking server-side authenticator status...</span>
+            <div className="py-8 flex flex-col items-center justify-center gap-2 text-xs text-slate-500">
+              <RefreshCw className="w-5 h-5 text-[#1E40AF] animate-spin" />
+              <span>{tr('Checking server-side authenticator status...', 'جاري التحقق من حالة المصادقة...')}</span>
             </div>
           ) : livePhase === 'error' ? (
-            <div className="rounded-lg border border-[#FF4D6A]/35 bg-[#FF4D6A]/10 p-4 space-y-3">
-              <p className="text-xs text-[#FF4D6A]">{error}</p>
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-3">
+              <p className="text-xs text-red-700">{error}</p>
               <button
                 type="button"
                 onClick={() => void initializeModalState()}
-                className="px-3 py-1.5 text-xs font-medium bg-white/[0.06] hover:bg-white/[0.1] text-slate-200 rounded-md transition-colors"
+                className="px-3 py-1.5 text-xs font-medium bg-white hover:bg-slate-50 text-[#0F172A] border border-red-200 rounded-md transition-colors"
               >
-                Retry Status Check
+                {tr('Retry Status Check', 'إعادة المحاولة')}
               </button>
             </div>
           ) : livePhase === 'enroll' && enrollmentMaterial ? (
-            <div className="rounded-lg border border-[#00E5FF]/25 bg-[#05070A] p-4 space-y-3">
+            <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4 space-y-3">
               <div className="flex flex-col sm:flex-row items-center gap-4">
-                <div className="bg-white p-2 rounded-lg shrink-0">
+                <div className="bg-white p-2 rounded-lg border border-[#E2E8F0] shrink-0">
                   <img
                     src={enrollmentMaterial.qrDataUrl}
                     alt="Scan TOTP enrollment QR code"
                     className="w-32 h-32 block"
                   />
                 </div>
-                <div className="space-y-2 text-xs text-slate-300 min-w-0 flex-1">
-                  <p className="font-medium text-slate-100">
-                    Scan with Google Authenticator, Authy, or 1Password
+                <div className="space-y-2 text-xs text-slate-600 min-w-0 flex-1">
+                  <p className="font-semibold text-[#0F172A]">
+                    {tr('Scan with Google Authenticator, Authy, or 1Password', 'امسح الرمز عبر تطبيق المصادقة')}
                   </p>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Once confirmed below, your secret is AES-256 encrypted on-server and never
-                    readable from the browser again.
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    {tr(
+                      'Once confirmed below, your secret is AES-256 encrypted on-server and never readable from the browser again.',
+                      'بمجرد التأكيد، يُشفّر المفتاح على الخادم بتشفير AES-256 ولا يمكن قراءته مجدداً.'
+                    )}
                   </p>
                   <div className="pt-1">
                     <span className="text-[10px] uppercase tracking-wider text-slate-500 block mb-1">
-                      Manual Setup Key (Base32)
+                      {tr('Manual Setup Key (Base32)', 'مفتاح الإعداد اليدوي (Base32)')}
                     </span>
-                    <div className="flex items-center gap-1.5 bg-[#0B0F16] border border-white/[0.08] rounded px-2.5 py-1.5">
-                      <code className="text-[11px] font-mono text-[#00E5FF] truncate flex-1">
+                    <div className="flex items-center gap-1.5 bg-white border border-[#E2E8F0] rounded px-2.5 py-1.5">
+                      <code className="text-[11px] font-mono text-[#1E40AF] truncate flex-1">
                         {enrollmentMaterial.secret}
                       </code>
                       <button
                         type="button"
                         onClick={handleCopySecret}
-                        className="text-slate-400 hover:text-white shrink-0"
+                        className="text-slate-400 hover:text-[#1E40AF] shrink-0"
                         aria-label="Copy Base32 setup key"
                       >
                         {copiedSecret ? (
-                          <Check className="w-3.5 h-3.5 text-[#00E39A]" />
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
                         ) : (
                           <Copy className="w-3.5 h-3.5" />
                         )}
@@ -427,13 +429,13 @@ export function TwoFactorModal({
 
           {/* Active Lockout Banner */}
           {isLocked && (
-            <div className="rounded-lg border border-[#FF4D6A]/40 bg-[#FF4D6A]/10 px-4 py-3 flex items-start gap-2.5">
-              <ShieldAlert className="w-4 h-4 text-[#FF4D6A] shrink-0 mt-0.5" />
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-start gap-2.5">
+              <ShieldAlert className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
               <div className="text-xs space-y-0.5">
-                <p className="font-semibold text-[#FF4D6A]">
+                <p className="font-semibold text-red-700">
                   2FA Locked ({formatCountdown(lockedRemainingSeconds)})
                 </p>
-                <p className="text-slate-300 text-[11px]">
+                <p className="text-red-700/80 text-[11px]">
                   Exceeded {TOTP_MAX_ATTEMPTS} failed verification attempts. Retry once the
                   15-minute cooldown expires.
                 </p>
@@ -447,16 +449,16 @@ export function TwoFactorModal({
               <div className="flex items-center justify-between gap-2">
                 <label
                   htmlFor="ntps-totp-input"
-                  className="text-xs font-medium text-slate-300 flex items-center gap-1.5"
+                  className="text-xs font-semibold text-[#0F172A] flex items-center gap-1.5"
                 >
-                  <Lock className="w-3.5 h-3.5 text-slate-400" />
+                  <Lock className="w-3.5 h-3.5 text-[#1E40AF]" />
                   {isLiveMode && livePhase === 'enroll'
-                    ? 'Confirm First 6-Digit Code'
-                    : 'Authenticator 6-Digit Code'}
+                    ? tr('Confirm First 6-Digit Code', 'تأكيد الرمز الأول من 6 أرقام')
+                    : tr('Authenticator 6-Digit Code', 'رمز المصادقة المكون من 6 أرقام')}
                 </label>
                 {!isLocked && remainingAttempts < TOTP_MAX_ATTEMPTS && (
-                  <span className="text-[11px] font-mono text-[#F5C542]">
-                    {remainingAttempts}/{TOTP_MAX_ATTEMPTS} attempts left
+                  <span className="text-[11px] font-mono text-amber-700 font-semibold">
+                    {remainingAttempts}/{TOTP_MAX_ATTEMPTS} {tr('attempts left', 'محاولات متبقية')}
                   </span>
                 )}
               </div>
@@ -475,9 +477,9 @@ export function TwoFactorModal({
                   if (error) setError(null);
                 }}
                 placeholder="000000"
-                className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] disabled:opacity-45 rounded-lg px-4 py-3 text-center font-mono text-xl tracking-[0.45em] text-slate-100 placeholder:text-slate-600 focus:outline-none transition-colors"
+                className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white disabled:opacity-45 rounded-lg px-4 py-3 text-center font-mono tabular-nums text-xl tracking-[0.45em] text-[#0F172A] placeholder:text-slate-400 focus:outline-none transition-colors"
               />
-              {error && !isLocked && <p className="text-xs text-[#FF4D6A]">{error}</p>}
+              {error && !isLocked && <p className="text-xs text-red-600 font-medium">{error}</p>}
             </div>
           )}
 
@@ -486,9 +488,9 @@ export function TwoFactorModal({
               type="button"
               onClick={onClose}
               disabled={busy}
-              className="px-4 py-2.5 text-xs font-medium text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] rounded-lg transition-colors whitespace-nowrap shrink-0"
+              className="px-4 py-2.5 text-xs font-medium text-slate-600 hover:text-[#0F172A] bg-[#F4F7FA] hover:bg-slate-200/70 border border-[#E2E8F0] rounded-lg transition-colors whitespace-nowrap shrink-0"
             >
-              Cancel
+              {tr('Cancel', 'إلغاء')}
             </button>
             <button
               type="submit"
@@ -498,12 +500,12 @@ export function TwoFactorModal({
                 code.length !== 6 ||
                 (isLiveMode && livePhase !== 'enroll' && livePhase !== 'verify')
               }
-              className="px-5 py-2.5 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] disabled:opacity-45 disabled:cursor-not-allowed rounded-lg transition-colors whitespace-nowrap shrink-0"
+              className="px-5 py-2.5 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] disabled:opacity-45 disabled:cursor-not-allowed rounded-lg transition-colors whitespace-nowrap shrink-0 shadow-xs"
             >
               {busy
-                ? 'Verifying...'
+                ? tr('Verifying...', 'جاري التحقق...')
                 : isLiveMode && livePhase === 'enroll'
-                  ? 'Activate & Confirm'
+                  ? tr('Activate & Confirm', 'تفعيل وتأكيد')
                   : confirmLabel}
             </button>
           </div>

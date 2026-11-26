@@ -30,6 +30,7 @@ import {
   type LedgerRuntimeMode,
 } from '../lib/ledgerEngine';
 import { formatTimestamp } from '../lib/format';
+import { useLocale } from '../context/LocaleContext';
 
 interface KycVerificationViewProps {
   submission: KycSubmissionRecord | null;
@@ -41,40 +42,53 @@ interface KycVerificationViewProps {
 }
 
 const STEPS = [
-  { id: 1, title: 'Entity & Profile' },
-  { id: 2, title: 'ID & Contact' },
-  { id: 3, title: 'Document Vault' },
-  { id: 4, title: 'Review & Submit' },
+  { id: 1, titleEn: 'Entity & Profile', titleAr: 'الكيان والملف' },
+  { id: 2, titleEn: 'ID & Contact', titleAr: 'الهوية والتواصل' },
+  { id: 3, titleEn: 'Document Vault', titleAr: 'خزنة المستندات' },
+  { id: 4, titleEn: 'Review & Submit', titleAr: 'المراجعة والإرسال' },
 ] as const;
 
 const SLOT_META: {
   slot: KycDocumentSlot;
-  title: string;
-  hint: string;
+  titleEn: string;
+  titleAr: string;
+  hintEn: string;
+  hintAr: string;
   requiredForPassport: boolean;
 }[] = [
   {
     slot: 'id_front',
-    title: 'Government ID / Incorporation Front',
-    hint: 'Clear color scan or photo of passport bio page, front of national ID, or certificate of incorporation.',
+    titleEn: 'Government ID / Incorporation Front',
+    titleAr: 'الوجه الأمامي للهوية / شهادة التأسيس',
+    hintEn:
+      'Clear color scan or photo of passport bio page, front of national ID, or certificate of incorporation.',
+    hintAr: 'مسح ملون واضح لصفحة الجواز أو الوجه الأمامي للهوية الوطنية أو شهادة التأسيس.',
     requiredForPassport: true,
   },
   {
     slot: 'id_back',
-    title: 'Government ID Back / Registry Addendum',
-    hint: 'Back side of national ID or secondary commercial registry page (optional for passport).',
+    titleEn: 'Government ID Back / Registry Addendum',
+    titleAr: 'الوجه الخلفي للهوية / ملحق السجل',
+    hintEn:
+      'Back side of national ID or secondary commercial registry page (optional for passport).',
+    hintAr: 'الوجه الخلفي للهوية الوطنية أو صفحة السجل التجاري الإضافية (اختياري للجواز).',
     requiredForPassport: false,
   },
   {
     slot: 'selfie',
-    title: 'Authorized Signatory Liveness Selfie',
-    hint: 'Unedited portrait photo of the applicant or authorized corporate signatory holding their ID.',
+    titleEn: 'Authorized Signatory Liveness Selfie',
+    titleAr: 'صورة شخصية للمفوض بالتوقيع',
+    hintEn:
+      'Unedited portrait photo of the applicant or authorized corporate signatory holding their ID.',
+    hintAr: 'صورة شخصية غير معدلة لمقدم الطلب أو المفوض بالتوقيع حاملاً الهوية.',
     requiredForPassport: true,
   },
   {
     slot: 'proof_of_address',
-    title: 'Proof of Address / Registered Office',
-    hint: 'Recent utility bill, bank statement, or official registry extract issued within 90 days.',
+    titleEn: 'Proof of Address / Registered Office',
+    titleAr: 'إثبات العنوان / المقر المسجل',
+    hintEn: 'Recent utility bill, bank statement, or official registry extract issued within 90 days.',
+    hintAr: 'فاتورة خدمات حديثة أو كشف حساب بنكي أو مستخرج سجل رسمي خلال آخر 90 يوماً.',
     requiredForPassport: true,
   },
 ];
@@ -93,13 +107,13 @@ export function KycVerificationView({
   onNavigate,
   onToast,
 }: KycVerificationViewProps) {
+  const { tr } = useLocale();
   const kycStatus: KycStatus = submission?.status ?? 'unverified';
   const [isResubmitting, setIsResubmitting] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Form state
   const [accountType, setAccountType] = useState<KycAccountType>(
     submission?.account_type ?? 'individual'
   );
@@ -115,7 +129,6 @@ export function KycVerificationView({
   const [phoneNumber, setPhoneNumber] = useState(submission?.phone_number ?? '');
   const [addressLine, setAddressLine] = useState(submission?.address_line ?? '');
 
-  // Uploaded Storage Paths + local filenames
   const [docPaths, setDocPaths] = useState<Partial<Record<KycDocumentSlot, string>>>({
     id_front: submission?.id_front_path || undefined,
     id_back: submission?.id_back_path || undefined,
@@ -152,7 +165,6 @@ export function KycVerificationView({
   }, [submission]);
 
   const showWizard = kycStatus === 'unverified' || (kycStatus === 'rejected' && isResubmitting);
-
   const idBackRequired = idType !== 'passport';
 
   const completedDocsCount = useMemo(() => {
@@ -172,7 +184,7 @@ export function KycVerificationView({
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Invalid file selected.';
       setFormError(msg);
-      onToast('Document rejected', msg, 'error');
+      onToast(tr('Document rejected', 'تم رفض المستند'), msg, 'error');
       return;
     }
 
@@ -186,11 +198,15 @@ export function KycVerificationView({
       });
       setDocPaths((prev) => ({ ...prev, [slot]: uploadedPath }));
       setDocNames((prev) => ({ ...prev, [slot]: file.name }));
-      onToast('Document uploaded', `${file.name} stored in private KYC vault.`, 'success');
+      onToast(
+        tr('Document uploaded', 'تم رفع المستند'),
+        `${file.name} stored in private KYC vault.`,
+        'success'
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to upload document.';
       setFormError(msg);
-      onToast('Upload failed', msg, 'error');
+      onToast(tr('Upload failed', 'فشل الرفع'), msg, 'error');
     } finally {
       setUploadingSlot(null);
     }
@@ -249,7 +265,7 @@ export function KycVerificationView({
       const err = validateStep(step as 1 | 2 | 3);
       if (err) {
         setFormError(err);
-        onToast('Step incomplete', err, 'error');
+        onToast(tr('Step incomplete', 'الخطوة غير مكتملة'), err, 'error');
         return;
       }
       setStep((prev) => (prev + 1) as 1 | 2 | 3 | 4);
@@ -264,7 +280,7 @@ export function KycVerificationView({
       if (err) {
         setFormError(err);
         setStep(s);
-        onToast('Verification incomplete', err, 'error');
+        onToast(tr('Verification incomplete', 'التوثيق غير مكتمل'), err, 'error');
         return;
       }
     }
@@ -290,14 +306,14 @@ export function KycVerificationView({
       setIsResubmitting(false);
       setStep(1);
       onToast(
-        'KYC / KYB Submitted',
-        'Your verification dossier is now queued for compliance review.',
+        tr('KYC / KYB Submitted', 'تم إرسال طلب التوثيق'),
+        tr('Your verification dossier is now queued for compliance review.', 'ملف التوثيق الخاص بك قيد مراجعة الامتثال الآن.'),
         'success'
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unable to submit KYC package.';
       setFormError(msg);
-      onToast('Submission failed', msg, 'error');
+      onToast(tr('Submission failed', 'فشل الإرسال'), msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -307,62 +323,74 @@ export function KycVerificationView({
     <div className="space-y-6">
       {/* Status Banner */}
       <section
-        className={`rounded-xl border p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4 ${
+        className={`rounded-xl border p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4 shadow-xs ${
           kycStatus === 'approved'
-            ? 'bg-emerald-500/10 border-emerald-500/30'
+            ? 'bg-emerald-50 border-emerald-200'
             : kycStatus === 'pending_review'
-              ? 'bg-[#00E5FF]/10 border-[#00E5FF]/30'
+              ? 'bg-blue-50 border-blue-200'
               : kycStatus === 'rejected'
-                ? 'bg-red-500/10 border-red-500/30'
-                : 'bg-amber-500/10 border-amber-500/30'
+                ? 'bg-red-50 border-red-200'
+                : 'bg-amber-50 border-amber-200'
         }`}
       >
         <div className="flex items-start gap-3.5 max-w-2xl">
           <div className="mt-0.5 shrink-0">
             {kycStatus === 'approved' ? (
-              <ShieldCheck className="w-6 h-6 text-emerald-400" />
+              <ShieldCheck className="w-6 h-6 text-emerald-700" />
             ) : kycStatus === 'pending_review' ? (
-              <Clock className="w-6 h-6 text-[#00E5FF]" />
+              <Clock className="w-6 h-6 text-[#1E40AF]" />
             ) : kycStatus === 'rejected' ? (
-              <ShieldAlert className="w-6 h-6 text-red-400" />
+              <ShieldAlert className="w-6 h-6 text-red-700" />
             ) : (
-              <AlertCircle className="w-6 h-6 text-[#F5C542]" />
+              <AlertCircle className="w-6 h-6 text-amber-700" />
             )}
           </div>
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h2 className="text-base font-semibold text-slate-100">
+              <h2 className="text-base font-semibold text-[#0F172A]">
                 {kycStatus === 'approved'
-                  ? 'KYC / KYB Verified'
+                  ? tr('KYC / KYB Verified', 'تم توثيق الهوية والشركات')
                   : kycStatus === 'pending_review'
-                    ? 'Pending Compliance Review'
+                    ? tr('Pending Compliance Review', 'بانتظار مراجعة الامتثال')
                     : kycStatus === 'rejected'
-                      ? 'Verification Rejected'
-                      : 'Identity Verification Required (Unverified)'}
+                      ? tr('Verification Rejected', 'تم رفض التوثيق')
+                      : tr('Identity Verification Required (Unverified)', 'التحقق من الهوية مطلوب (غير موثق)')}
               </h2>
               <span
-                className={`font-mono text-[11px] uppercase tracking-wider font-semibold ${
+                className={`font-mono text-[11px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded border ${
                   kycStatus === 'approved'
-                    ? 'text-emerald-400'
+                    ? 'bg-white text-emerald-700 border-emerald-300'
                     : kycStatus === 'pending_review'
-                      ? 'text-[#00E5FF]'
+                      ? 'bg-white text-[#1E40AF] border-blue-300'
                       : kycStatus === 'rejected'
-                        ? 'text-red-400'
-                        : 'text-[#F5C542]'
+                        ? 'bg-white text-red-700 border-red-300'
+                        : 'bg-white text-amber-800 border-amber-300'
                 }`}
               >
                 {kycStatus.replace('_', ' ')}
               </span>
             </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
+            <p className="text-xs text-slate-700 leading-relaxed">
               {kycStatus === 'approved'
-                ? 'Your institutional profile passed compliance screening. Master & Sub-Terminal provisioning and custody withdrawals are unlocked.'
+                ? tr(
+                    'Your institutional profile passed compliance screening. Master & Sub-Terminal provisioning and custody withdrawals are unlocked.',
+                    'اجتاز ملفك المؤسسي فحص الامتثال. تم فتح إنشاء المحطات والسحوبات الخارجية.'
+                  )
                 : kycStatus === 'pending_review'
-                  ? 'Your identity package and encrypted documents are under active compliance review. Terminal provisioning and external withdrawals unlock upon approval.'
+                  ? tr(
+                      'Your identity package and encrypted documents are under active compliance review. Terminal provisioning and external withdrawals unlock upon approval.',
+                      'ملف الهوية والمستندات المشفرة قيد المراجعة النشطة. ستُفتح الميزات فور الموافقة.'
+                    )
                   : kycStatus === 'rejected'
                     ? submission?.rejection_reason ||
-                      'Your submission was rejected by compliance. Review the note below and resubmit corrected documents.'
-                    : 'Complete Individual KYC or Corporate KYB onboarding to activate live treasury provisioning, Sub-Terminal creation, and external custody withdrawals.'}
+                      tr(
+                        'Your submission was rejected by compliance. Review the note below and resubmit corrected documents.',
+                        'تم رفض طلبك من قسم الامتثال. راجع الملاحظة وأعد إرسال المستندات المصححة.'
+                      )
+                    : tr(
+                        'Complete Individual KYC or Corporate KYB onboarding to activate live treasury provisioning, Sub-Terminal creation, and external custody withdrawals.',
+                        'أكمل التوثيق الفردي أو المؤسسي لتفعيل الخزينة وإنشاء المحطات الفرعية والسحوبات.'
+                      )}
             </p>
           </div>
         </div>
@@ -375,29 +403,29 @@ export function KycVerificationView({
                 setIsResubmitting(true);
                 setStep(1);
               }}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] rounded-lg transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg transition-colors whitespace-nowrap"
             >
-              Edit & Resubmit KYC
+              {tr('Edit & Resubmit KYC', 'تعديل وإعادة إرسال الطلب')}
             </button>
           )}
           {authMode === 'local_demo' && kycStatus === 'pending_review' && onNavigate && (
             <button
               type="button"
               onClick={() => onNavigate('admin_panel')}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-100 bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.14] rounded-lg transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#1E40AF] hover:bg-[#24489B] rounded-lg transition-colors whitespace-nowrap"
             >
-              Review in Admin Compliance Queue
-              <ChevronRight className="w-3.5 h-3.5" />
+              {tr('Review in Admin Compliance Queue', 'المراجعة في قائمة الامتثال')}
+              <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />
             </button>
           )}
           {kycStatus === 'approved' && onNavigate && (
             <button
               type="button"
               onClick={() => onNavigate('deposit_withdraw')}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#05070A] bg-emerald-400 hover:bg-emerald-300 rounded-lg transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] rounded-lg transition-colors whitespace-nowrap"
             >
-              Proceed to Custody Withdrawals
-              <ChevronRight className="w-3.5 h-3.5" />
+              {tr('Proceed to Custody Withdrawals', 'الانتقال إلى السحوبات')}
+              <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />
             </button>
           )}
         </div>
@@ -405,80 +433,85 @@ export function KycVerificationView({
 
       {/* Submitted / Approved / Rejected Dossier Summary */}
       {submission && !showWizard && (
-        <section className="bg-[#0B0F16] border border-white/[0.08] rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-white/[0.08] flex flex-wrap items-center justify-between gap-3">
+        <section className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden shadow-xs">
+          <div className="px-6 py-4 border-b border-[#E2E8F0] bg-[#F8FAFC] flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold text-slate-100">
-                Submitted Verification Dossier
+              <h3 className="text-sm font-semibold text-[#0F172A]">
+                {tr('Submitted Verification Dossier', 'ملف التوثيق المرسل')}
               </h3>
-              <p className="text-xs text-slate-400 mt-0.5 font-mono tabular-nums">
-                Submission {submission.id.slice(0, 8)} · Updated {formatTimestamp(submission.updated_at)}
+              <p className="text-xs text-slate-500 mt-0.5 font-mono tabular-nums">
+                {tr('Submission', 'الطلب')} {submission.id.slice(0, 8)} · {tr('Updated', 'محدث')}{' '}
+                {formatTimestamp(submission.updated_at)}
               </p>
             </div>
-            <span className="text-xs font-mono text-slate-300 uppercase">
+            <span className="text-xs font-mono font-semibold text-[#1E40AF] uppercase bg-blue-50 border border-blue-200 px-2.5 py-1 rounded">
               {submission.account_type === 'corporate' ? 'Corporate KYB' : 'Individual KYC'}
             </span>
           </div>
 
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 text-xs">
             <div className="space-y-1">
-              <span className="text-slate-400">Legal / Entity Name</span>
-              <div className="text-slate-100 font-medium">{submission.full_legal_name}</div>
+              <span className="text-slate-500">{tr('Legal / Entity Name', 'الاسم القانوني / الكيان')}</span>
+              <div className="text-[#0F172A] font-semibold">{submission.full_legal_name}</div>
             </div>
             <div className="space-y-1">
-              <span className="text-slate-400">
-                {submission.account_type === 'corporate' ? 'Incorporation Date' : 'Date of Birth'}
+              <span className="text-slate-500">
+                {submission.account_type === 'corporate'
+                  ? tr('Incorporation Date', 'تاريخ التأسيس')
+                  : tr('Date of Birth', 'تاريخ الميلاد')}
               </span>
-              <div className="font-mono tabular-nums text-slate-100">
-                {submission.date_of_birth || 'Not provided'}
+              <div className="font-mono tabular-nums text-[#0F172A] font-medium">
+                {submission.date_of_birth || tr('Not provided', 'غير متوفر')}
               </div>
             </div>
             <div className="space-y-1">
-              <span className="text-slate-400">Jurisdiction / Residence</span>
-              <div className="text-slate-100">
+              <span className="text-slate-500">{tr('Jurisdiction / Residence', 'الاختصاص / الإقامة')}</span>
+              <div className="text-[#0F172A] font-medium">
                 {submission.nationality} / {submission.country_of_residence}
               </div>
             </div>
             <div className="space-y-1">
-              <span className="text-slate-400">Identification Document</span>
-              <div className="font-mono text-slate-100">
+              <span className="text-slate-500">{tr('Identification Document', 'وثيقة الهوية')}</span>
+              <div className="font-mono tabular-nums text-[#0F172A] font-medium">
                 {submission.id_type.replace('_', ' ')} · {maskIdentifier(submission.id_number)}
               </div>
             </div>
             {submission.tax_or_reg_number && (
               <div className="space-y-1">
-                <span className="text-slate-400">Tax / Registry Number</span>
-                <div className="font-mono text-slate-100">
+                <span className="text-slate-500">{tr('Tax / Registry Number', 'الرقم الضريبي / السجل')}</span>
+                <div className="font-mono tabular-nums text-[#0F172A] font-medium">
                   {maskIdentifier(submission.tax_or_reg_number)}
                 </div>
               </div>
             )}
             <div className="space-y-1">
-              <span className="text-slate-400">Compliance Audit Timestamp</span>
-              <div className="font-mono tabular-nums text-slate-200">
-                {submission.reviewed_at ? formatTimestamp(submission.reviewed_at) : 'Awaiting Review'}
+              <span className="text-slate-500">{tr('Compliance Audit Timestamp', 'وقت مراجعة الامتثال')}</span>
+              <div className="font-mono tabular-nums text-slate-700">
+                {submission.reviewed_at
+                  ? formatTimestamp(submission.reviewed_at)
+                  : tr('Awaiting Review', 'بانتظار المراجعة')}
               </div>
             </div>
           </div>
 
-          <div className="px-6 py-4 border-t border-white/[0.06] bg-[#05070A]/60 flex flex-wrap items-center gap-6 text-xs text-slate-300">
+          <div className="px-6 py-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex flex-wrap items-center gap-6 text-xs text-[#0F172A] font-medium">
             <span className="inline-flex items-center gap-1.5">
-              <FileCheck2 className="w-4 h-4 text-emerald-400" />
-              ID Front Vaulted
+              <FileCheck2 className="w-4 h-4 text-emerald-700" />
+              {tr('ID Front Vaulted', 'الوجه الأمامي محفوظ')}
             </span>
             {submission.id_back_path && (
               <span className="inline-flex items-center gap-1.5">
-                <FileCheck2 className="w-4 h-4 text-emerald-400" />
-                ID Back Vaulted
+                <FileCheck2 className="w-4 h-4 text-emerald-700" />
+                {tr('ID Back Vaulted', 'الوجه الخلفي محفوظ')}
               </span>
             )}
             <span className="inline-flex items-center gap-1.5">
-              <FileCheck2 className="w-4 h-4 text-emerald-400" />
-              Liveness Selfie Vaulted
+              <FileCheck2 className="w-4 h-4 text-emerald-700" />
+              {tr('Liveness Selfie Vaulted', 'الصورة الشخصية محفوظة')}
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <FileCheck2 className="w-4 h-4 text-emerald-400" />
-              Proof of Address Vaulted
+              <FileCheck2 className="w-4 h-4 text-emerald-700" />
+              {tr('Proof of Address Vaulted', 'إثبات العنوان محفوظ')}
             </span>
           </div>
         </section>
@@ -486,19 +519,24 @@ export function KycVerificationView({
 
       {/* Multi-Step Onboarding Wizard */}
       {showWizard && (
-        <section className="bg-[#0B0F16] border border-white/[0.08] rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-white/[0.08] flex flex-wrap items-center justify-between gap-4">
+        <section className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden shadow-xs">
+          <div className="px-6 py-4 border-b border-[#E2E8F0] bg-[#F8FAFC] flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h3 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
-                <UserCheck className="w-4 h-4 text-[#00E5FF]" />
-                {isResubmitting ? 'Resubmit KYC / KYB Package' : 'KYC / KYB Compliance Onboarding'}
+              <h3 className="text-sm font-semibold text-[#0F172A] flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-[#1E40AF]" />
+                {isResubmitting
+                  ? tr('Resubmit KYC / KYB Package', 'إعادة إرسال ملف التوثيق')
+                  : tr('KYC / KYB Compliance Onboarding', 'إجراءات امتثال التوثيق KYC / KYB')}
               </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Private encrypted storage (`kyc-documents`) · PDF, JPG, or PNG up to 10 MB per file
+              <p className="text-xs text-slate-500 mt-0.5">
+                {tr(
+                  'Private encrypted storage (kyc-documents) · PDF, JPG, or PNG up to 10 MB per file',
+                  'تخزين خاص مشفر · PDF أو JPG أو PNG بحد أقصى 10 ميجابايت للملف'
+                )}
               </p>
             </div>
 
-            <div className="flex items-center gap-1.5 text-xs">
+            <div className="flex items-center gap-1.5 text-xs flex-wrap">
               {STEPS.map((s) => {
                 const active = step === s.id;
                 const done = step > s.id;
@@ -509,25 +547,25 @@ export function KycVerificationView({
                     onClick={() => {
                       if (s.id < step) setStep(s.id);
                     }}
-                    className={`px-2.5 py-1.5 rounded-md font-mono text-[11px] whitespace-nowrap border transition-colors ${
+                    className={`px-2.5 py-1.5 rounded-md font-mono tabular-nums text-[11px] whitespace-nowrap border transition-colors ${
                       active
-                        ? 'bg-[#00E5FF]/15 border-[#00E5FF]/40 text-[#00E5FF] font-semibold'
+                        ? 'bg-[#1E40AF] border-[#1E40AF] text-white font-semibold shadow-xs'
                         : done
-                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                          : 'bg-[#05070A] border-white/[0.07] text-slate-500'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-medium'
+                          : 'bg-white border-[#E2E8F0] text-slate-500'
                     }`}
                   >
-                    {s.id}. {s.title}
+                    {s.id}. {tr(s.titleEn, s.titleAr)}
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          <form onSubmit={handleSubmit} className="p-6 space-y-6 bg-white">
             {formError && (
-              <div className="flex items-start gap-2.5 p-3.5 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-200">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-2.5 p-3.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 font-medium">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                 <span>{formError}</span>
               </div>
             )}
@@ -536,7 +574,9 @@ export function KycVerificationView({
             {step === 1 && (
               <div className="space-y-5">
                 <div className="space-y-2">
-                  <span className="block text-xs font-medium text-slate-300">Account Profile Type</span>
+                  <span className="block text-xs font-semibold text-[#0F172A]">
+                    {tr('Account Profile Type', 'نوع ملف الحساب')}
+                  </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button
                       type="button"
@@ -544,17 +584,22 @@ export function KycVerificationView({
                         setAccountType('individual');
                         if (idType === 'commercial_registry') setIdType('passport');
                       }}
-                      className={`p-4 rounded-xl border text-left transition-colors flex items-start gap-3 ${
+                      className={`p-4 rounded-xl border text-start transition-colors flex items-start gap-3 ${
                         accountType === 'individual'
-                          ? 'bg-[#00E5FF]/10 border-[#00E5FF]/40'
-                          : 'bg-[#05070A] border-white/[0.08] hover:border-white/[0.16]'
+                          ? 'bg-blue-50/70 border-[#1E40AF] ring-1 ring-[#1E40AF]/20'
+                          : 'bg-[#F8FAFC] border-[#E2E8F0] hover:border-slate-300'
                       }`}
                     >
-                      <User className="w-4 h-4 text-[#00E5FF] mt-0.5 shrink-0" />
+                      <User className="w-4 h-4 text-[#1E40AF] mt-0.5 shrink-0" />
                       <div>
-                        <div className="text-xs font-semibold text-slate-100">Individual (KYC)</div>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          Sole proprietor, trader, or private treasury operator
+                        <div className="text-xs font-semibold text-[#0F172A]">
+                          {tr('Individual (KYC)', 'فردي (KYC)')}
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-0.5">
+                          {tr(
+                            'Sole proprietor, trader, or private treasury operator',
+                            'مالك فردي أو متداول أو مشغل خزينة خاصة'
+                          )}
                         </p>
                       </div>
                     </button>
@@ -564,17 +609,22 @@ export function KycVerificationView({
                         setAccountType('corporate');
                         setIdType('commercial_registry');
                       }}
-                      className={`p-4 rounded-xl border text-left transition-colors flex items-start gap-3 ${
+                      className={`p-4 rounded-xl border text-start transition-colors flex items-start gap-3 ${
                         accountType === 'corporate'
-                          ? 'bg-[#00E5FF]/10 border-[#00E5FF]/40'
-                          : 'bg-[#05070A] border-white/[0.08] hover:border-white/[0.16]'
+                          ? 'bg-blue-50/70 border-[#1E40AF] ring-1 ring-[#1E40AF]/20'
+                          : 'bg-[#F8FAFC] border-[#E2E8F0] hover:border-slate-300'
                       }`}
                     >
-                      <Building2 className="w-4 h-4 text-[#F5C542] mt-0.5 shrink-0" />
+                      <Building2 className="w-4 h-4 text-[#1E40AF] mt-0.5 shrink-0" />
                       <div>
-                        <div className="text-xs font-semibold text-slate-100">Corporate (KYB)</div>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          Institutional entity, fund, OTC desk, or corporate treasury
+                        <div className="text-xs font-semibold text-[#0F172A]">
+                          {tr('Corporate (KYB)', 'شركات ومؤسسات (KYB)')}
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-0.5">
+                          {tr(
+                            'Institutional entity, fund, OTC desk, or corporate treasury',
+                            'كيان مؤسسي أو صندوق استثمار أو مكتب تداول أو خزينة شركة'
+                          )}
                         </p>
                       </div>
                     </button>
@@ -583,8 +633,10 @@ export function KycVerificationView({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label htmlFor="kyc-legal-name" className="block text-xs font-medium text-slate-300">
-                      {accountType === 'corporate' ? 'Registered Legal Entity Name' : 'Full Legal Name'}
+                    <label htmlFor="kyc-legal-name" className="block text-xs font-semibold text-[#0F172A]">
+                      {accountType === 'corporate'
+                        ? tr('Registered Legal Entity Name', 'الاسم القانوني المسجل للكيان')
+                        : tr('Full Legal Name', 'الاسم القانوني الكامل')}
                     </label>
                     <input
                       id="kyc-legal-name"
@@ -592,26 +644,28 @@ export function KycVerificationView({
                       value={fullLegalName}
                       onChange={(e) => setFullLegalName(e.target.value)}
                       placeholder={accountType === 'corporate' ? 'e.g. Apex Clearing AG' : 'e.g. Nadia Mansour'}
-                      className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none"
+                      className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3.5 py-2.5 text-xs text-[#0F172A] placeholder:text-slate-400 focus:outline-none"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label htmlFor="kyc-dob" className="block text-xs font-medium text-slate-300">
+                    <label htmlFor="kyc-dob" className="block text-xs font-semibold text-[#0F172A]">
                       {accountType === 'corporate'
-                        ? 'Date of Incorporation (Optional)'
-                        : 'Date of Birth (18+ required)'}
+                        ? tr('Date of Incorporation (Optional)', 'تاريخ التأسيس (اختياري)')
+                        : tr('Date of Birth (18+ required)', 'تاريخ الميلاد (18+ مطلوب)')}
                     </label>
                     <input
                       id="kyc-dob"
                       type="date"
                       value={dateOfBirth}
                       onChange={(e) => setDateOfBirth(e.target.value)}
-                      className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3.5 py-2.5 font-mono text-xs text-slate-100 focus:outline-none"
+                      className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3.5 py-2.5 font-mono tabular-nums text-xs text-[#0F172A] focus:outline-none"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label htmlFor="kyc-nationality" className="block text-xs font-medium text-slate-300">
-                      {accountType === 'corporate' ? 'Jurisdiction of Incorporation' : 'Nationality'}
+                    <label htmlFor="kyc-nationality" className="block text-xs font-semibold text-[#0F172A]">
+                      {accountType === 'corporate'
+                        ? tr('Jurisdiction of Incorporation', 'دولة التأسيس')
+                        : tr('Nationality', 'الجنسية')}
                     </label>
                     <input
                       id="kyc-nationality"
@@ -619,12 +673,12 @@ export function KycVerificationView({
                       value={nationality}
                       onChange={(e) => setNationality(e.target.value)}
                       placeholder="e.g. Switzerland"
-                      className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none"
+                      className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3.5 py-2.5 text-xs text-[#0F172A] placeholder:text-slate-400 focus:outline-none"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label htmlFor="kyc-residence" className="block text-xs font-medium text-slate-300">
-                      Country of Residence / Operations
+                    <label htmlFor="kyc-residence" className="block text-xs font-semibold text-[#0F172A]">
+                      {tr('Country of Residence / Operations', 'بلد الإقامة / العمليات')}
                     </label>
                     <input
                       id="kyc-residence"
@@ -632,7 +686,7 @@ export function KycVerificationView({
                       value={countryOfResidence}
                       onChange={(e) => setCountryOfResidence(e.target.value)}
                       placeholder="e.g. United Arab Emirates"
-                      className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none"
+                      className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3.5 py-2.5 text-xs text-[#0F172A] placeholder:text-slate-400 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -643,24 +697,26 @@ export function KycVerificationView({
             {step === 2 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label htmlFor="kyc-id-type" className="block text-xs font-medium text-slate-300">
-                    Primary ID / Registry Document Type
+                  <label htmlFor="kyc-id-type" className="block text-xs font-semibold text-[#0F172A]">
+                    {tr('Primary ID / Registry Document Type', 'نوع الوثيقة الأساسية')}
                   </label>
                   <select
                     id="kyc-id-type"
                     value={idType}
                     onChange={(e) => setIdType(e.target.value as KycIdType)}
-                    className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none"
+                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3.5 py-2.5 text-xs text-[#0F172A] focus:outline-none"
                   >
-                    <option value="passport">Passport</option>
-                    <option value="national_id">National ID Card</option>
-                    <option value="commercial_registry">Commercial Registry Certificate</option>
+                    <option value="passport">{tr('Passport', 'جواز سفر')}</option>
+                    <option value="national_id">{tr('National ID Card', 'بطاقة هوية وطنية')}</option>
+                    <option value="commercial_registry">
+                      {tr('Commercial Registry Certificate', 'شهادة السجل التجاري')}
+                    </option>
                   </select>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label htmlFor="kyc-id-number" className="block text-xs font-medium text-slate-300">
-                    ID / Registration Number
+                  <label htmlFor="kyc-id-number" className="block text-xs font-semibold text-[#0F172A]">
+                    {tr('ID / Registration Number', 'رقم الهوية / السجل')}
                   </label>
                   <input
                     id="kyc-id-number"
@@ -668,14 +724,16 @@ export function KycVerificationView({
                     value={idNumber}
                     onChange={(e) => setIdNumber(e.target.value)}
                     placeholder="e.g. P84920144"
-                    className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3.5 py-2.5 font-mono text-xs text-slate-100 focus:outline-none"
+                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3.5 py-2.5 font-mono tabular-nums text-xs text-[#0F172A] placeholder:text-slate-400 focus:outline-none"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label htmlFor="kyc-tax" className="block text-xs font-medium text-slate-300">
-                    Tax / Commercial Reg. Number{' '}
-                    {accountType === 'corporate' ? '(Required for KYB)' : '(Optional)'}
+                  <label htmlFor="kyc-tax" className="block text-xs font-semibold text-[#0F172A]">
+                    {tr('Tax / Commercial Reg. Number', 'الرقم الضريبي / التسجيل التجاري')}{' '}
+                    {accountType === 'corporate'
+                      ? tr('(Required for KYB)', '(مطلوب للشركات)')
+                      : tr('(Optional)', '(اختياري)')}
                   </label>
                   <input
                     id="kyc-tax"
@@ -683,13 +741,13 @@ export function KycVerificationView({
                     value={taxOrRegNumber}
                     onChange={(e) => setTaxOrRegNumber(e.target.value)}
                     placeholder="e.g. CHE-419.802.311"
-                    className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3.5 py-2.5 font-mono text-xs text-slate-100 focus:outline-none"
+                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3.5 py-2.5 font-mono tabular-nums text-xs text-[#0F172A] placeholder:text-slate-400 focus:outline-none"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label htmlFor="kyc-phone" className="block text-xs font-medium text-slate-300">
-                    Contact Phone Number
+                  <label htmlFor="kyc-phone" className="block text-xs font-semibold text-[#0F172A]">
+                    {tr('Contact Phone Number', 'رقم هاتف التواصل')}
                   </label>
                   <input
                     id="kyc-phone"
@@ -697,21 +755,21 @@ export function KycVerificationView({
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
                     placeholder="e.g. +971 50 412 8890"
-                    className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3.5 py-2.5 font-mono text-xs text-slate-100 focus:outline-none"
+                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3.5 py-2.5 font-mono tabular-nums text-xs text-[#0F172A] placeholder:text-slate-400 focus:outline-none"
                   />
                 </div>
 
                 <div className="space-y-1.5 sm:col-span-2">
-                  <label htmlFor="kyc-address" className="block text-xs font-medium text-slate-300">
-                    Residential / Registered Office Address
+                  <label htmlFor="kyc-address" className="block text-xs font-semibold text-[#0F172A]">
+                    {tr('Residential / Registered Office Address', 'عنوان الإقامة / المقر المسجل')}
                   </label>
                   <input
                     id="kyc-address"
                     type="text"
                     value={addressLine}
                     onChange={(e) => setAddressLine(e.target.value)}
-                    placeholder="Street, Suite, City, Postal Code, Country"
-                    className="w-full bg-[#05070A] border border-white/[0.12] focus:border-[#00E5FF] rounded-lg px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none"
+                    placeholder={tr('Street, Suite, City, Postal Code, Country', 'الشارع، المكتب، المدينة، الرمز البريدي، الدولة')}
+                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] focus:border-[#1E40AF] focus:bg-white rounded-lg px-3.5 py-2.5 text-xs text-[#0F172A] placeholder:text-slate-400 focus:outline-none"
                   />
                 </div>
               </div>
@@ -720,14 +778,15 @@ export function KycVerificationView({
             {/* Step 3 */}
             {step === 3 && (
               <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
                   <span>
-                    Accepted formats: <code className="font-mono text-slate-200">PDF</code>,{' '}
-                    <code className="font-mono text-slate-200">JPG</code>,{' '}
-                    <code className="font-mono text-slate-200">PNG</code> (max 10 MB per file).
+                    {tr('Accepted formats:', 'الصيغ المقبولة:')}{' '}
+                    <code className="font-mono text-[#0F172A] font-semibold">PDF</code>,{' '}
+                    <code className="font-mono text-[#0F172A] font-semibold">JPG</code>,{' '}
+                    <code className="font-mono text-[#0F172A] font-semibold">PNG</code> (max 10 MB).
                   </span>
-                  <span className="font-mono tabular-nums text-[#00E5FF]">
-                    {completedDocsCount} / {idBackRequired ? 4 : 3} Uploaded
+                  <span className="font-mono tabular-nums text-[#1E40AF] font-semibold">
+                    {completedDocsCount} / {idBackRequired ? 4 : 3} {tr('Uploaded', 'مرفوع')}
                   </span>
                 </div>
 
@@ -740,43 +799,53 @@ export function KycVerificationView({
                     return (
                       <div
                         key={item.slot}
-                        className={`bg-[#05070A] border rounded-xl p-4 flex flex-col justify-between gap-3 ${
-                          currentPath ? 'border-emerald-500/35' : 'border-white/[0.08]'
+                        className={`bg-[#F8FAFC] border rounded-xl p-4 flex flex-col justify-between gap-3 ${
+                          currentPath ? 'border-emerald-300 bg-emerald-50/40' : 'border-[#E2E8F0]'
                         }`}
                       >
                         <div className="space-y-1">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-semibold text-slate-100">
-                              {item.title}
+                            <span className="text-xs font-semibold text-[#0F172A]">
+                              {tr(item.titleEn, item.titleAr)}
                             </span>
                             <span
-                              className={`text-[11px] font-mono ${
+                              className={`text-[11px] font-mono font-semibold ${
                                 currentPath
-                                  ? 'text-emerald-400'
+                                  ? 'text-emerald-700'
                                   : required
-                                    ? 'text-amber-400'
+                                    ? 'text-amber-700'
                                     : 'text-slate-500'
                               }`}
                             >
-                              {currentPath ? 'Uploaded' : required ? 'Required' : 'Optional'}
+                              {currentPath
+                                ? tr('Uploaded', 'مرفوع')
+                                : required
+                                  ? tr('Required', 'مطلوب')
+                                  : tr('Optional', 'اختياري')}
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">{item.hint}</p>
+                          <p className="text-[11px] text-slate-600 leading-relaxed">
+                            {tr(item.hintEn, item.hintAr)}
+                          </p>
                         </div>
 
-                        <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/[0.06]">
-                          <div className="text-[11px] font-mono text-slate-400 truncate min-w-0">
+                        <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#E2E8F0]">
+                          <div className="text-[11px] font-mono text-slate-600 truncate min-w-0">
                             {isUploading
-                              ? 'Uploading...'
+                              ? tr('Uploading...', 'جاري الرفع...')
                               : docNames[item.slot]
                                 ? docNames[item.slot]
                                 : currentPath
                                   ? currentPath.split('/').pop()
-                                  : 'No file selected'}
+                                  : tr('No file selected', 'لم يتم اختيار ملف')}
                           </div>
-                          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#00E5FF] bg-[#00E5FF]/10 hover:bg-[#00E5FF]/20 border border-[#00E5FF]/25 rounded-lg cursor-pointer whitespace-nowrap shrink-0 transition-colors">
-                            <Upload className="w-3.5 h-3.5" />
-                            <span>{currentPath ? 'Replace' : 'Upload File'}</span>
+                          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#1E40AF] hover:bg-[#24489B] rounded-lg cursor-pointer whitespace-nowrap shrink-0 transition-colors">
+                            <Upload className="w-3.5 h-3.5 text-[#D6FF3D]" />
+                            <span>
+                              {currentPath
+                                ? tr('Replace', 'استبدال')
+                                : tr('Upload File', 'رفع ملف')}
+                            </span>
                             <input
                               type="file"
                               accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
@@ -800,57 +869,60 @@ export function KycVerificationView({
             {/* Step 4 */}
             {step === 4 && (
               <div className="space-y-5">
-                <div className="bg-[#05070A] border border-white/[0.08] rounded-xl divide-y divide-white/[0.06] text-xs">
+                <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl divide-y divide-[#E2E8F0] text-xs">
                   <div className="px-4 py-3 flex items-center justify-between">
-                    <span className="text-slate-400">Account Type</span>
-                    <span className="font-medium text-slate-100 capitalize">{accountType}</span>
+                    <span className="text-slate-500">{tr('Account Type', 'نوع الحساب')}</span>
+                    <span className="font-semibold text-[#0F172A] capitalize">{accountType}</span>
                   </div>
                   <div className="px-4 py-3 flex items-center justify-between">
-                    <span className="text-slate-400">Legal Name / Entity</span>
-                    <span className="font-medium text-slate-100">{fullLegalName}</span>
+                    <span className="text-slate-500">{tr('Legal Name / Entity', 'الاسم القانوني / الكيان')}</span>
+                    <span className="font-semibold text-[#0F172A]">{fullLegalName}</span>
                   </div>
                   <div className="px-4 py-3 flex items-center justify-between">
-                    <span className="text-slate-400">
-                      {accountType === 'corporate' ? 'Incorporation Date' : 'Date of Birth'}
+                    <span className="text-slate-500">
+                      {accountType === 'corporate'
+                        ? tr('Incorporation Date', 'تاريخ التأسيس')
+                        : tr('Date of Birth', 'تاريخ الميلاد')}
                     </span>
-                    <span className="font-mono tabular-nums text-slate-100">
-                      {dateOfBirth.trim() || 'Not provided'}
+                    <span className="font-mono tabular-nums text-[#0F172A]">
+                      {dateOfBirth.trim() || tr('Not provided', 'غير متوفر')}
                     </span>
                   </div>
                   <div className="px-4 py-3 flex items-center justify-between">
-                    <span className="text-slate-400">Jurisdiction / Residence</span>
-                    <span className="text-slate-100">
+                    <span className="text-slate-500">{tr('Jurisdiction / Residence', 'الاختصاص / الإقامة')}</span>
+                    <span className="text-[#0F172A]">
                       {nationality} · {countryOfResidence}
                     </span>
                   </div>
                   <div className="px-4 py-3 flex items-center justify-between">
-                    <span className="text-slate-400">ID / Registry Document</span>
-                    <span className="font-mono text-slate-100">
+                    <span className="text-slate-500">{tr('ID / Registry Document', 'وثيقة الهوية / السجل')}</span>
+                    <span className="font-mono tabular-nums text-[#0F172A]">
                       {idType.replace('_', ' ')} ({maskIdentifier(idNumber)})
                     </span>
                   </div>
                   <div className="px-4 py-3 flex items-center justify-between">
-                    <span className="text-slate-400">Attached Documents</span>
-                    <span className="inline-flex items-center gap-1.5 text-emerald-400 font-mono">
+                    <span className="text-slate-500">{tr('Attached Documents', 'المستندات المرفقة')}</span>
+                    <span className="inline-flex items-center gap-1.5 text-emerald-700 font-mono font-semibold">
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      {completedDocsCount} Vaulted Files
+                      {completedDocsCount} {tr('Vaulted Files', 'ملفات محفوظة')}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-start gap-2.5 p-3.5 rounded-lg bg-[#05070A] border border-white/[0.08] text-xs text-slate-300">
-                  <FileText className="w-4 h-4 text-[#00E5FF] shrink-0 mt-0.5" />
+                <div className="flex items-start gap-2.5 p-3.5 rounded-lg bg-[#F4F7FA] border border-[#E2E8F0] text-xs text-slate-700">
+                  <FileText className="w-4 h-4 text-[#1E40AF] shrink-0 mt-0.5" />
                   <span>
-                    I attest that the submitted corporate/personal identity records are accurate and
-                    authorize NTPS compliance officers to inspect the vaulted documents under private
-                    signed access.
+                    {tr(
+                      'I attest that the submitted corporate/personal identity records are accurate and authorize NTPS compliance officers to inspect the vaulted documents under private signed access.',
+                      'أقر بصحة بيانات الهوية المؤسسية/الشخصية المقدمة وأفوض مسؤولي الامتثال في NTPS بفحص المستندات المحفوظة.'
+                    )}
                   </span>
                 </div>
               </div>
             )}
 
             {/* Wizard Footer Navigation */}
-            <div className="flex items-center justify-between pt-4 border-t border-white/[0.08]">
+            <div className="flex items-center justify-between pt-4 border-t border-[#E2E8F0]">
               <button
                 type="button"
                 disabled={step === 1 || isSubmitting}
@@ -858,10 +930,10 @@ export function KycVerificationView({
                   setFormError(null);
                   setStep((prev) => Math.max(1, prev - 1) as 1 | 2 | 3 | 4);
                 }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-slate-300 bg-white/[0.05] hover:bg-white/[0.1] disabled:opacity-40 border border-white/[0.08] rounded-lg transition-colors whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-[#0F172A] bg-[#F4F7FA] hover:bg-slate-200/70 disabled:opacity-40 border border-[#E2E8F0] rounded-lg transition-colors whitespace-nowrap"
               >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                Back
+                <ChevronLeft className="w-3.5 h-3.5 rtl:rotate-180" />
+                {tr('Back', 'السابق')}
               </button>
 
               <div className="flex items-center gap-3">
@@ -869,9 +941,9 @@ export function KycVerificationView({
                   <button
                     type="button"
                     onClick={() => setIsResubmitting(false)}
-                    className="px-3.5 py-2 text-xs text-slate-400 hover:text-slate-100"
+                    className="px-3.5 py-2 text-xs text-slate-500 hover:text-[#0F172A]"
                   >
-                    Cancel Edit
+                    {tr('Cancel Edit', 'إلغاء التعديل')}
                   </button>
                 )}
 
@@ -880,19 +952,21 @@ export function KycVerificationView({
                     type="button"
                     disabled={uploadingSlot !== null}
                     onClick={handleNextStep}
-                    className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-semibold text-[#05070A] bg-[#00E5FF] hover:bg-[#33ECFF] disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap"
+                    className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shadow-xs"
                   >
-                    Continue
-                    <ChevronRight className="w-3.5 h-3.5" />
+                    {tr('Continue', 'متابعة')}
+                    <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />
                   </button>
                 ) : (
                   <button
                     type="submit"
                     disabled={isSubmitting || uploadingSlot !== null}
-                    className="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-[#05070A] bg-emerald-400 hover:bg-emerald-300 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap"
+                    className="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-[#0F172A] bg-[#D6FF3D] hover:bg-[#c8f526] disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shadow-xs"
                   >
                     <ShieldCheck className="w-4 h-4" />
-                    {isSubmitting ? 'Submitting to Compliance...' : 'Submit KYC / KYB Verification'}
+                    {isSubmitting
+                      ? tr('Submitting to Compliance...', 'جاري الإرسال للامتثال...')
+                      : tr('Submit KYC / KYB Verification', 'إرسال طلب التوثيق')}
                   </button>
                 )}
               </div>
